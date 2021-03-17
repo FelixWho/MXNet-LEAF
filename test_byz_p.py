@@ -7,6 +7,7 @@ import random
 import argparse
 import byzantine
 import os
+import json
 
 from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODEL_PARAMS
 
@@ -100,21 +101,56 @@ def get_byz(byz_type):
     else:
         raise NotImplementedError
 
-def gather_leaf_data(dataset):
+def retrieve_leaf_data(dataset):
     train_data_path = 'leaf/data/%s/data/train' % dataset.lower()
     test_data_path = 'leaf/data/%s/data/test' % dataset.lower()
     if not os.path.exists(train_data_path) or not os.path.exists(test_data_path):
-        raise IOError("Something went wrong: data not found. Make sure data has been downloaded.")
-    if LEAF_IMPLEMENTED_DATASETS[dataset]['type'] == 'image':
-        for filename in os.listdir(train_data_path):
-            img = mx.img.imread(os.path.join(train_data_path, filename))
-            if img is not None:
+        raise IOError("Data not found. Make sure data has been downloaded.")
 
+    all_training_x = []
+    all_training_y = []
+    all_testing_x = []
+    all_testing_y = []
+
+    if dataset == 'FEMNIST':
+        for filename in os.listdir(train_data_path):
+            with open(os.path.join(train_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    for x in data['user_data'][user]['x']: # currently, x's are 1D arrays, must transform the x's
+                        x = mx.nd.array(x) # convert to ndarray
+                        x = x.astype(np.float32).reshape(1,28,28) # convert 1D into 2D ndarray
+                        all_training_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = np.float32(y)
+                        all_training_y.append(y)
+        # preprocess testing data
         for filename in os.listdir(test_data_path):
-            img = mx.img.imread(os.path.join(test_data_path, filename))
-            if img is not None:   
+            with open(os.path.join(test_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    for x in data['user_data'][user]['x']:
+                        x = mx.nd.array(x)
+                        x = x.reshape(1,28,28)
+                        all_testing_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = np.float32(y)
+                        all_testing_y.append(y)
+
+    elif dataset == 'CELEBA':
+        for filename in os.listdir(train_data_path):
+            with open(os.path.join(train_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    images = data['user_data'][user] # list of image file names
+
+
     else:
         raise NotImplementedError
+
+    train_dataset = mx.gluon.data.dataset.ArrayDataset(all_training_x, all_training_y)
+    test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
+    return train_dataset, test_dataset
 
 def load_data(dataset):
     # load the dataset
@@ -124,7 +160,11 @@ def load_data(dataset):
         train_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=True, transform=transform), 60000,shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=False, transform=transform), 250, shuffle=False, last_batch='rollover')
     elif LEAF_IMPLEMENTED_DATASETS.has_key(dataset):
-        
+        train_dataset, test_dataset = retrieve_leaf_data(dataset)
+
+        # TODO: Check with Xiaoyu about batch size
+        train_data = mx.gluon.data.DataLoader(train_dataset, 60000, shuffle=True, last_batch='rollover')
+        test_data = mx.gluon.data.DataLoader(test_dataset, 250, shuffle=False, last_batch='rollover')
     else: 
         raise NotImplementedError
     return train_data, test_data

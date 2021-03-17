@@ -2,10 +2,14 @@
 
 LEAF_IMPLEMENTED_DATASETS = {
     'FEMNIST': {
-        'type': 'image'
+        'type': 'image_array',
+        'width': 28,
+        'height': 28
     },
     'CELEBA': {
-        'type': 'image'
+        'type': 'image_file',
+        'width': 178,
+        'height': 218
     }
 }
 """dict: Dataset specific download paths"""

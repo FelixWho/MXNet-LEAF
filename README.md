@@ -20,8 +20,8 @@ Note, LEAF dataset names are assumed to be completely capitalized to avoid confu
 
     FEMNIST
     CELEBA
-    # SENT140
-    # SHAKESPEARE
-    # SYNTHETIC
-    # REDDIT
+    SENT140 # not implemented
+    SHAKESPEARE # not implemented
+    SYNTHETIC # not implemented
+    REDDIT # not implemented
 
