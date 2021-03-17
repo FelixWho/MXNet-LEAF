@@ -113,6 +113,7 @@ def retrieve_leaf_data(dataset):
     all_testing_y = []
 
     if dataset == 'FEMNIST':
+        # preprocess training data
         for filename in os.listdir(train_data_path):
             with open(os.path.join(train_data_path, filename)) as f:
                 data = json.load(f)
@@ -138,13 +139,33 @@ def retrieve_leaf_data(dataset):
                         all_testing_y.append(y)
 
     elif dataset == 'CELEBA':
+        raw_data_path = 'leaf/data/celeba/data/raw/img_align_celeba'
+        # preprocess training data
         for filename in os.listdir(train_data_path):
             with open(os.path.join(train_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    images = data['user_data'][user] # list of image file names
-
-
+                    for image in data['user_data'][user]['x']: # list of image file names
+                        x = mx.img.imread(os.path.join(raw_data_path, image))
+                        x = mx.img.imresize(x, 84, 84) # resize to 84x84 according to LEAF model
+                        x = nd.transpose(x.astype(np.float32), (2,0,1)) / 255
+                        all_training_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = np.float32(y)
+                        all_training_y.append(y)
+        # preprocess testing data
+        for filename in os.listdir(test_data_path):
+            with open(os.path.join(test_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    for image in data['user_data'][user]['x']: # list of image file names
+                        x = mx.img.imread(os.path.join(raw_data_path, image))
+                        x = mx.img.imresize(x, 84, 84) # resize to 84x84 according to LEAF model
+                        x = nd.transpose(x.astype(np.float32), (2,0,1)) / 255
+                        all_testing_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = np.float32(y)
+                        all_testing_y.append(y)    
     else:
         raise NotImplementedError
 
