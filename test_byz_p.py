@@ -9,7 +9,7 @@ import byzantine
 import os
 import json
 
-from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODEL_PARAMS
+from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -37,23 +37,28 @@ def get_device(device):
         ctx = mx.gpu(device)
     return ctx
     
-def get_cnn(num_outputs=10):
+def get_cnn(num_outputs=10, dataset='FashionMNIST'):
     # define the architecture of the CNN
-    cnn = gluon.nn.Sequential()
-    with cnn.name_scope():
-        cnn.add(gluon.nn.Conv2D(channels=30, kernel_size=3, activation='relu'))
-        cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
-        cnn.add(gluon.nn.Conv2D(channels=50, kernel_size=3, activation='relu'))
-        cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
-        cnn.add(gluon.nn.Flatten())
-        cnn.add(gluon.nn.Dense(100, activation="relu"))
-        cnn.add(gluon.nn.Dense(num_outputs))
+    if dataset == 'FashionMNIST':
+        cnn = gluon.nn.Sequential()
+        with cnn.name_scope():
+            cnn.add(gluon.nn.Conv2D(channels=30, kernel_size=3, activation='relu'))
+            cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
+            cnn.add(gluon.nn.Conv2D(channels=50, kernel_size=3, activation='relu'))
+            cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
+            cnn.add(gluon.nn.Flatten())
+            cnn.add(gluon.nn.Dense(100, activation="relu"))
+            cnn.add(gluon.nn.Dense(num_outputs))
+    elif dataset in LEAF_IMPLEMENTED_DATASETS and LEAF_MODELS.has_key(dataset):
+        cnn = LEAF_MODELS[dataset]
+    else:
+        raise NotImplementedError
     return cnn
 
-def get_net(net_type, num_outputs=10):
+def get_net(net_type, num_outputs=10, dataset='FashionMNIST'):
     # define the model architecture
     if args.net == 'cnn':
-        net = get_cnn(num_outputs)
+        net = get_cnn(num_outputs, dataset)
     else:
         raise NotImplementedError
     return net
@@ -180,10 +185,8 @@ def load_data(dataset):
             return nd.transpose(data.astype(np.float32), (2, 0, 1)) / 255, label.astype(np.float32)
         train_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=True, transform=transform), 60000,shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=False, transform=transform), 250, shuffle=False, last_batch='rollover')
-    elif LEAF_IMPLEMENTED_DATASETS.has_key(dataset):
+    elif dataset in LEAF_IMPLEMENTED_DATASETS:
         train_dataset, test_dataset = retrieve_leaf_data(dataset)
-
-        # TODO: Check with Xiaoyu about batch size
         train_data = mx.gluon.data.DataLoader(train_dataset, 60000, shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(test_dataset, 250, shuffle=False, last_batch='rollover')
     else: 
@@ -287,7 +290,7 @@ def main(args):
  
     with ctx:
         # model architecture
-        net = get_net(args.net, num_outputs)
+        net = get_net(args.net, num_outputs, args.dataset)
         # initialization
         net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), force_reinit=True, ctx=ctx)
         # loss
