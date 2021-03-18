@@ -49,7 +49,7 @@ def get_cnn(num_outputs=10, dataset='FashionMNIST'):
             cnn.add(gluon.nn.Flatten())
             cnn.add(gluon.nn.Dense(100, activation="relu"))
             cnn.add(gluon.nn.Dense(num_outputs))
-    elif dataset in LEAF_IMPLEMENTED_DATASETS and LEAF_MODELS.has_key(dataset):
+    elif dataset in LEAF_IMPLEMENTED_DATASETS and dataset in LEAF_MODELS:
         cnn = LEAF_MODELS[dataset]
     else:
         raise NotImplementedError
@@ -165,6 +165,7 @@ def retrieve_leaf_data(dataset):
                 for user in data['users']:
                     for image in data['user_data'][user]['x']: # list of image file names
                         x = mx.img.imread(os.path.join(raw_data_path, image))
+                        print(x)
                         x = mx.img.imresize(x, 84, 84) # resize to 84x84 according to LEAF model
                         x = nd.transpose(x.astype(np.float32), (2,0,1)) / 255
                         all_testing_x.append(x)
@@ -187,7 +188,7 @@ def load_data(dataset):
         test_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=False, transform=transform), 250, shuffle=False, last_batch='rollover')
     elif dataset in LEAF_IMPLEMENTED_DATASETS:
         train_dataset, test_dataset = retrieve_leaf_data(dataset)
-        train_data = mx.gluon.data.DataLoader(train_dataset, 60000, shuffle=True, last_batch='rollover')
+        train_data = mx.gluon.data.DataLoader(train_dataset, 5000, shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(test_dataset, 250, shuffle=False, last_batch='rollover')
     else: 
         raise NotImplementedError
@@ -228,6 +229,10 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
         for (x, y) in zip(data, label):
             if dataset == "FashionMNIST":
                 x = x.as_in_context(ctx).reshape(1,1,28,28)
+            elif dataset == 'FEMNIST':
+                x = x.as_in_context(ctx).reshape(1,1,28,28)
+            elif dataset == 'CELEBA':
+                x = x.as_in_context(ctx).reshape(1,3,84,84)
             else:
                 raise NotImplementedError
             y = y.as_in_context(ctx)
@@ -252,7 +257,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
                 selected_worker = int(worker_group * worker_per_group + int(np.floor(rd * worker_per_group)))
                 each_worker_data[selected_worker].append(x)
                 each_worker_label[selected_worker].append(y)
-                
+    
     server_data = nd.concat(*server_data, dim=0)
     server_label = nd.concat(*server_label, dim=0)
     
@@ -268,11 +273,6 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
         print(each_worker.shape)
     return server_data, server_label, each_worker_data, each_worker_label
     
-# TODO LIST
-# get_shapes()
-# get_net()
-# load_data()
-
 def main(args):
     # device to use
     ctx = get_device(args.gpu)
@@ -282,7 +282,7 @@ def main(args):
     num_workers = args.nworkers
     lr = args.lr
     niter = args.niter
-    
+
     paraString = 'p'+str(args.p)+ '_' + str(args.dataset) + "server " + str(args.server_pc) + "bias" + str(args.bias)+ "+nworkers " + str(
         args.nworkers) + "+" + "net " + str(args.net) + "+" + "niter " + str(args.niter) + "+" + "lr " + str(
         args.lr) + "+" + "batch_size " + str(args.batch_size) + "+nbyz " + str(
@@ -298,13 +298,13 @@ def main(args):
 
         grad_list = []
         test_acc_list = []
-
+        
         # fix the seeds
         seed = args.nrepeats
         mx.random.seed(seed)
         random.seed(seed)
         np.random.seed(seed)
-
+    
         # load the data
         train_data, test_data = load_data(args.dataset)
         
@@ -312,9 +312,9 @@ def main(args):
         server_data, server_label, each_worker_data, each_worker_label = assign_data(
                                                                     train_data, args.bias, ctx, num_labels=num_labels, num_workers=num_workers, 
                                                                     server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
-        
         # begin training        
         for e in range(niter):            
+            print(e)
             for i in range(num_workers):
                 minibatch = np.random.choice(list(range(each_worker_data[i].shape[0])), size=batch_size, replace=False)
                 with autograd.record():
