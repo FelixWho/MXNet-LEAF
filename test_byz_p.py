@@ -174,7 +174,8 @@ def retrieve_leaf_data(dataset):
                         all_testing_y.append(y)    
     else:
         raise NotImplementedError
-
+    assert len(all_training_x) == len(all_training_y)
+    assert len(all_testing_x) == len(all_testing_y)
     train_dataset = mx.gluon.data.dataset.ArrayDataset(all_training_x, all_training_y)
     test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
     return train_dataset, test_dataset
