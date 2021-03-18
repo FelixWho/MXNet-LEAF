@@ -50,7 +50,17 @@ def get_cnn(num_outputs=10, dataset='FashionMNIST'):
             cnn.add(gluon.nn.Dense(100, activation="relu"))
             cnn.add(gluon.nn.Dense(num_outputs))
     elif dataset in LEAF_IMPLEMENTED_DATASETS and dataset in LEAF_MODELS:
-        cnn = LEAF_MODELS[dataset]
+        print("Using custom LEAF model")
+        femnist_cnn = gluon.nn.Sequential()
+        with femnist_cnn.name_scope():
+            femnist_cnn.add(gluon.nn.Conv2D(channels=32, kernel_size=5, padding=2, activation='relu'))
+            femnist_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
+            femnist_cnn.add(gluon.nn.Conv2D(channels=64, kernel_size=5, padding=2, activation='relu'))
+            femnist_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
+            femnist_cnn.add(gluon.nn.Flatten())
+            femnist_cnn.add(gluon.nn.Dense(2048, activation="relu"))
+            femnist_cnn.add(gluon.nn.Dense(62))
+        cnn = femnist_cnn #LEAF_MODELS[dataset]
     else:
         raise NotImplementedError
     return cnn
