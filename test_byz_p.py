@@ -122,8 +122,7 @@ def retrieve_leaf_data(dataset):
     if not os.path.exists(train_data_path) or not os.path.exists(test_data_path):
         raise IOError("Data not found. Make sure data has been downloaded.")
 
-    all_training_x = []
-    all_training_y = []
+    all_training = {}
     all_testing_x = []
     all_testing_y = []
 
@@ -133,18 +132,20 @@ def retrieve_leaf_data(dataset):
             with open(os.path.join(train_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
+                    all_training[user] = {'x':[], 'y':[]}
                     for x in data['user_data'][user]['x']: # currently, x's are 1D arrays, must transform the x's
                         x = mx.nd.array(x) # convert to ndarray
                         x = x.astype(np.float32).reshape(1,28,28) # convert 1D into 2D ndarray
-                        all_training_x.append(x)
+                        all_training[user]['x'].append(x)
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
-                        all_training_y.append(y)
+                        all_training[user]['y'].append(y)
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
+                    all_testing[user] = {'x':[], 'y':[]}
                     for x in data['user_data'][user]['x']:
                         x = mx.nd.array(x)
                         x = x.reshape(1,28,28)
@@ -160,19 +161,21 @@ def retrieve_leaf_data(dataset):
             with open(os.path.join(train_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
+                    all_training[user] = {'x':[], 'y':[]}
                     for image in data['user_data'][user]['x']: # list of image file names
                         x = mx.img.imread(os.path.join(raw_data_path, image))
                         x = mx.img.imresize(x, 84, 84) # resize to 84x84 according to LEAF model
                         x = nd.transpose(x.astype(np.float32), (2,0,1)) / 255
-                        all_training_x.append(x)
+                        all_training[user]['x'].append(x)
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
-                        all_training_y.append(y)
+                        all_training[user]['y'].append(y)
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
+                    all_testing[user] = {'x':[], 'y':[]}
                     for image in data['user_data'][user]['x']: # list of image file names
                         x = mx.img.imread(os.path.join(raw_data_path, image))
                         print(x)
@@ -181,14 +184,13 @@ def retrieve_leaf_data(dataset):
                         all_testing_x.append(x)
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
-                        all_testing_y.append(y)    
+                        all_testing_y.append(y)  
     else:
         raise NotImplementedError
-    assert len(all_training_x) == len(all_training_y)
-    assert len(all_testing_x) == len(all_testing_y)
-    train_dataset = mx.gluon.data.dataset.ArrayDataset(all_training_x, all_training_y)
+
+    #train_dataset = mx.gluon.data.dataset.ArrayDataset(all_training_x, all_training_y)
     test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
-    return train_dataset, test_dataset
+    return all_training, test_dataset
 
 def load_data(dataset):
     # load the dataset
@@ -198,8 +200,8 @@ def load_data(dataset):
         train_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=True, transform=transform), 60000,shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=False, transform=transform), 250, shuffle=False, last_batch='rollover')
     elif dataset in LEAF_IMPLEMENTED_DATASETS:
-        train_dataset, test_dataset = retrieve_leaf_data(dataset)
-        train_data = mx.gluon.data.DataLoader(train_dataset, 5000, shuffle=True, last_batch='rollover')
+        train_data, test_dataset = retrieve_leaf_data(dataset)
+        #train_data = mx.gluon.data.DataLoader(train_dataset, 5000, shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(test_dataset, 250, shuffle=False, last_batch='rollover')
     else: 
         raise NotImplementedError
@@ -283,6 +285,61 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     for each_worker in each_worker_data:
         print(each_worker.shape)
     return server_data, server_label, each_worker_data, each_worker_label
+
+def assign_data_leaf(train_data, bias, ctx, p=0.1, dataset='FEMNIST', seed=1):
+    
+    n = len(train_data) # total amount of users
+    num_users_in_server = int(p * n) # how many users to keep for server
+    num_workers = n - num_users_in_server
+
+    #assign training data to each worker
+    each_worker_data = [[] for _ in range(num_workers)]
+    each_worker_label = [[] for _ in range(num_workers)]   
+    server_data = []
+    server_label = [] 
+
+    # randomly split users into workers and those who will be incorporated into server
+    users_list = list(train_data.keys()) 
+    random.shuffle(users_list)
+    users_as_workers = users_list[num_users_in_server:]
+    users_in_server = users_list[:num_users_in_server]
+
+    # add data to server_data and server_label
+    for user in users_in_server:
+        for x in train_data[user]['x']:
+            if dataset == 'FEMNIST':
+                x = x.as_in_context(ctx).reshape(1,1,28,28)
+            elif dataset == 'CELEBA':
+                x = x.as_in_context(ctx).reshape(1,3,84,84)
+            else:
+                raise NotImplementedError
+            server_data.append(x)
+        for y in train_data[user]['y']:
+            y = y.as_in_context(ctx)
+            server_label.append(y)
+
+
+    for count, user in enumerate(users_in_server):
+        for x in train_data[user]['x']:
+            if dataset == 'FEMNIST':
+                x = x.as_in_context(ctx).reshape(1,1,28,28)
+            elif dataset == 'CELEBA':
+                x = x.as_in_context(ctx).reshape(1,3,84,84)
+            else:
+                raise NotImplementedError
+            each_worker_data[count].append(x)
+        for y in train_data[user]['y']:
+            y = y.as_in_context(ctx)
+            each_worker_label[count].append(y)
+
+    # randomly permute the workers
+    random_order = np.random.RandomState(seed=seed).permutation(num_workers)
+    each_worker_data = [each_worker_data[i] for i in random_order]
+    each_worker_label = [each_worker_label[i] for i in random_order]
+    
+    for each_worker in each_worker_data:
+        print(each_worker.shape)
+    return server_data, server_label, each_worker_data, each_worker_label
     
 def main(args):
     # device to use
@@ -320,7 +377,14 @@ def main(args):
         train_data, test_data = load_data(args.dataset)
         
         # assign data to the server and clients
-        server_data, server_label, each_worker_data, each_worker_label = assign_data(
+        if args.dataset in LEAF_IMPLEMENTED_DATASETS:
+            # since LEAF already separates data by user, we go by that instead of user arguments
+            num_workers = len(train_data) - int(args.p * len(train_data)) # instead of args.nworkers, # workers = total users in dataset - users assigned to server
+
+            server_data, server_label, each_worker_data, each_worker_label = assign_data_leaf(
+                                                                            train_data, args.bias, ctx, p=args.p, dataset=args.dataset, seed=seed)
+        else:
+            server_data, server_label, each_worker_data, each_worker_label = assign_data(
                                                                     train_data, args.bias, ctx, num_labels=num_labels, num_workers=num_workers, 
                                                                     server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
         # begin training        
