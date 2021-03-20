@@ -145,7 +145,7 @@ def retrieve_leaf_data(dataset):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    all_testing[user] = {'x':[], 'y':[]}
+                    all_testing_x = {'x':[], 'y':[]}
                     for x in data['user_data'][user]['x']:
                         x = mx.nd.array(x)
                         x = x.reshape(1,28,28)
