@@ -214,8 +214,8 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     each_worker_data = [[] for _ in range(num_workers)]
     each_worker_label = [[] for _ in range(num_workers)]   
     server_data = []
-    server_label = [] 
-    
+    server_label = []
+ 
     # compute the labels needed for each class
     real_dis = [1. / num_labels for _ in range(num_labels)]
     samp_dis = [0 for _ in range(num_labels)]
@@ -233,7 +233,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
             samp_dis[other_num] += 1
             sum_res -= 1
     samp_dis[num_labels - 1] = server_pc - np.sum(samp_dis[:num_labels - 1])
-
+    
     # randomly assign the data points based on the labels
     server_counter = [0 for _ in range(num_labels)]
     for _, (data, label) in enumerate(train_data):
