@@ -183,7 +183,6 @@ def retrieve_leaf_data(dataset):
                     all_testing[user] = {'x':[], 'y':[]}
                     for image in data['user_data'][user]['x']: # list of image file names
                         x = mx.img.imread(os.path.join(raw_data_path, image))
-                        print(x)
                         x = mx.img.imresize(x, 84, 84) # resize to 84x84 according to LEAF model
                         x = nd.transpose(x.astype(np.float32), (2,0,1)) / 255
                         all_testing_x.append(x)
@@ -383,7 +382,7 @@ def main(args):
             num_workers = len(train_data) - int(args.p * len(train_data)) # instead of args.nworkers, # workers = total users in dataset - users assigned to server
             #server_data, server_label, each_worker_data, each_worker_label = assign_data_leaf(
             #                                                                train_data, args.bias, ctx, p=args.p, dataset=args.dataset, seed=seed)
-            print(num_workers)
+            print("num workers" + str(num_workers))
         else:
             server_data, server_label, each_worker_data, each_worker_label = assign_data(
                                                                     train_data, args.bias, ctx, num_labels=num_labels, num_workers=num_workers, 
