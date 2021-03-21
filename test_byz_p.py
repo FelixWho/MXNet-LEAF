@@ -141,7 +141,8 @@ def retrieve_leaf_data(dataset):
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
                         user_y.append(y)
-                    all_training.append(mx.gluon.data.dataset.ArrayDataset(user_x, user_y)) # append a dataset per user
+                    all_training.append(
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
@@ -171,9 +172,9 @@ def retrieve_leaf_data(dataset):
                         user_x.append(x)
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
-                        user_y.append(y)                    
-                    all_training.append(mx.gluon.data.dataset.ArrayDataset(user_x, user_y)) # append a dataset per user
-
+                        user_y.append(y)
+                    all_training.append(
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
@@ -275,7 +276,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     
     each_worker_data = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_data] 
     each_worker_label = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_label]
-
+    
     # randomly permute the workers
     random_order = np.random.RandomState(seed=seed).permutation(num_workers)
     each_worker_data = [each_worker_data[i] for i in random_order]
@@ -286,7 +287,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     return server_data, server_label, each_worker_data, each_worker_label
 
 def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
-    
+   
     n = len(train_data) # total amount of users
     num_users_in_server = int(p * n) # how many users to keep for server
     num_workers = n - num_users_in_server
