@@ -145,7 +145,6 @@ def retrieve_leaf_data(dataset):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    all_testing_x = {'x':[], 'y':[]}
                     for x in data['user_data'][user]['x']:
                         x = mx.nd.array(x)
                         x = x.reshape(1,28,28)
@@ -315,7 +314,7 @@ def assign_data_leaf(train_data, bias, ctx, p=0.1, dataset='FEMNIST', seed=1):
                 raise NotImplementedError
             server_data.append(x)
         for y in train_data[user]['y']:
-            y = y.as_in_context(ctx)
+            #y = y.as_in_context(ctx)
             server_label.append(y)
 
 
@@ -329,7 +328,7 @@ def assign_data_leaf(train_data, bias, ctx, p=0.1, dataset='FEMNIST', seed=1):
                 raise NotImplementedError
             each_worker_data[count].append(x)
         for y in train_data[user]['y']:
-            y = y.as_in_context(ctx)
+            #y = y.as_in_context(ctx)
             each_worker_label[count].append(y)
 
     # randomly permute the workers
