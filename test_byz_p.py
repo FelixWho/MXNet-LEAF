@@ -286,7 +286,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
         print(each_worker.shape)
     return server_data, server_label, each_worker_data, each_worker_label
 
-def assign_data_leaf(train_data, bias, ctx, p=0.1, dataset='FEMNIST', seed=1):
+def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
     
     n = len(train_data) # total amount of users
     num_users_in_server = int(p * n) # how many users to keep for server
@@ -298,39 +298,34 @@ def assign_data_leaf(train_data, bias, ctx, p=0.1, dataset='FEMNIST', seed=1):
     server_data = []
     server_label = [] 
 
-    # randomly split users into workers and those who will be incorporated into server
+    # randomly shuffle users into workers and those who will be incorporated into server
     users_list = list(train_data.keys()) 
-    random.shuffle(users_list)
-    users_as_workers = users_list[num_users_in_server:]
-    users_in_server = users_list[:num_users_in_server]
+    random.shuffle(train_data)
+    #users_as_workers = users_list[num_users_in_server:]
+    #users_in_server = users_list[:num_users_in_server]
 
-    # add data to server_data and server_label
-    for user in users_in_server:
-        for x in train_data[user]['x']:
-            if dataset == 'FEMNIST':
-                x = x.as_in_context(ctx).reshape(1,1,28,28)
-            elif dataset == 'CELEBA':
-                x = x.as_in_context(ctx).reshape(1,3,84,84)
-            else:
-                raise NotImplementedError
-            server_data.append(x)
-        for y in train_data[user]['y']:
-            y = y.as_in_context(ctx)
-            server_label.append(y)
+    for i in range(0, n):
+        for _, (data, label) in enumerate(train_data[i]):
+            for (x, y) in zip(data, label):
+                if dataset == 'FEMNIST':
+                    x = x.as_in_context(ctx).reshape(1,1,28,28)
+                elif dataset == 'CELEBA':
+                    x = x.as_in_context(ctx).reshape(1,3,84,84)
+                else:
+                    raise NotImplementedError
+                y = y.as_in_context(ctx)
+                if i < num_workers:
+                    each_worker_data[i].append(x)
+                    each_worker_label[i].append(y)
+                else:
+                    server_data.append(x)
+                    server_label.append(y)
 
-
-    for count, user in enumerate(users_in_server):
-        for x in train_data[user]['x']:
-            if dataset == 'FEMNIST':
-                x = x.as_in_context(ctx).reshape(1,1,28,28)
-            elif dataset == 'CELEBA':
-                x = x.as_in_context(ctx).reshape(1,3,84,84)
-            else:
-                raise NotImplementedError
-            each_worker_data[count].append(x)
-        for y in train_data[user]['y']:
-            y = y.as_in_context(ctx)
-            each_worker_label[count].append(y)
+    server_data = nd.concat(*server_data, dim=0)
+    server_label = nd.concat(*server_label, dim=0)
+    
+    each_worker_data = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_data] 
+    each_worker_label = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_label]
 
     # randomly permute the workers
     random_order = np.random.RandomState(seed=seed).permutation(num_workers)
@@ -380,9 +375,9 @@ def main(args):
         if args.dataset in LEAF_IMPLEMENTED_DATASETS:
             # since LEAF already separates data by user, we go by that instead of user arguments
             num_workers = len(train_data) - int(args.p * len(train_data)) # instead of args.nworkers, # workers = total users in dataset - users assigned to server
-            #server_data, server_label, each_worker_data, each_worker_label = assign_data_leaf(
-            #                                                                train_data, args.bias, ctx, p=args.p, dataset=args.dataset, seed=seed)
-            print("num workers" + str(num_workers))
+            server_data, server_label, each_worker_data, each_worker_label = assign_data_leaf(
+                                                                            train_data, ctx, p=args.p, dataset=args.dataset, seed=seed)
+            print("num workers " + str(num_workers))
         else:
             server_data, server_label, each_worker_data, each_worker_label = assign_data(
                                                                     train_data, args.bias, ctx, num_labels=num_labels, num_workers=num_workers, 
