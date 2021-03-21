@@ -298,7 +298,6 @@ def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
     server_label = [] 
 
     # randomly shuffle users into workers and those who will be incorporated into server
-    users_list = list(train_data.keys()) 
     random.shuffle(train_data)
     #users_as_workers = users_list[num_users_in_server:]
     #users_in_server = users_list[:num_users_in_server]
