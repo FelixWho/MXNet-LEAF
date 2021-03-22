@@ -380,7 +380,7 @@ def main(args):
                     output = net(each_worker_data[i][minibatch])
                     loss = softmax_cross_entropy(output, each_worker_label[i][minibatch])
                 loss.backward()
-                grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req() != 'null'])
+                grad_list.append([param.grad().copy() for param in net.collect_params().values()])
 
             if args.aggregation == "fltrust":
                 # compute server update and append it to the end of the list
@@ -389,7 +389,7 @@ def main(args):
                     output = net(server_data)
                     loss = softmax_cross_entropy(output, server_label)
                 loss.backward()
-                grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req() != 'null'])
+                grad_list.append([param.grad().copy() for param in net.collect_params().values()])
                 # perform the aggregation
                 nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
 

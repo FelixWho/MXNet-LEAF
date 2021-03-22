@@ -28,9 +28,9 @@ celeba_cnn = gluon.nn.Sequential()
 with celeba_cnn.name_scope():
     for _ in range(4):
         celeba_cnn.add(gluon.nn.Conv2D(channels=32, kernel_size=3, padding=1, activation='relu'))
-        celeba_cnn.add(gluon.nn.BatchNorm())
+        #celeba_cnn.add(gluon.nn.BatchNorm())
         celeba_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
-        celeba_cnn.add(gluon.nn.Activation('relu'))
+        #celeba_cnn.add(gluon.nn.Activation('relu'))
     celeba_cnn.add(gluon.nn.Flatten())
     celeba_cnn.add(gluon.nn.Dense(2))
 
