@@ -391,7 +391,9 @@ def main(args):
                 loss.backward()
                 grad_list.append([param.grad().copy() for param in net.collect_params().values()])
                 # perform the aggregation
-                nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
+                nd_aggregation.fltrust(grad_list, net, lr, args.nbyz, byz)
+            elif args.aggregation == "simple":
+                nd_aggregation.fltrust(grad_list, net, lr, args.nbyz, byz)
 
             del grad_list
             grad_list = []
