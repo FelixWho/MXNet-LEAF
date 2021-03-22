@@ -165,7 +165,7 @@ def retrieve_leaf_data(dataset):
                         y = np.float32(y)
                         user_y.append(y)
                     all_training.append(
-                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 100, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
@@ -391,9 +391,9 @@ def main(args):
                 loss.backward()
                 grad_list.append([param.grad().copy() for param in net.collect_params().values()])
                 # perform the aggregation
-                nd_aggregation.fltrust(grad_list, net, lr, args.nbyz, byz)
+                nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "simple":
-                nd_aggregation.fltrust(grad_list, net, lr, args.nbyz, byz)
+                nd_aggregation.simple_mean(e, grad_list, net, lr, args.nbyz, byz)
 
             del grad_list
             grad_list = []

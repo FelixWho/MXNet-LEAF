@@ -2,9 +2,9 @@ import mxnet as mx
 from mxnet import nd, autograd, gluon
 import numpy as np
 
-def simple_mean(gradients, net, lr, f, byz):
+def simple_mean(epoch, gradients, net, lr, f, byz):
     param_list = [nd.concat(*[xx.reshape((-1, 1)) for xx in x], dim=0) for x in gradients]
-    param_list = byz(param_list, net, lr, f)
+    param_list = byz(epoch, param_list, net, lr, f)
     mean_nd = nd.mean(nd.concat(*param_list, dim=1), axis=-1)
     idx = 0
     for j, (param) in enumerate(net.collect_params().values()):
