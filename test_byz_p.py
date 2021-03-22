@@ -132,13 +132,13 @@ def retrieve_leaf_data(dataset):
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
                         user_y.append(y)
-                    all_training.append(mx.gluon.data.dataset.ArrayDataset(user_x, user_y)) # append a dataset per user
+                    all_training.append(
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    all_testing_x = {'x':[], 'y':[]}
                     for x in data['user_data'][user]['x']:
                         x = mx.nd.array(x)
                         x = x.reshape(1,28,28)
@@ -163,9 +163,9 @@ def retrieve_leaf_data(dataset):
                         user_x.append(x)
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
-                        user_y.append(y)                    
-                    all_training.append(mx.gluon.data.dataset.ArrayDataset(user_x, user_y)) # append a dataset per user
-
+                        user_y.append(y)
+                    all_training.append(
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
@@ -211,8 +211,8 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     each_worker_data = [[] for _ in range(num_workers)]
     each_worker_label = [[] for _ in range(num_workers)]   
     server_data = []
-    server_label = [] 
-    
+    server_label = []
+ 
     # compute the labels needed for each class
     real_dis = [1. / num_labels for _ in range(num_labels)]
     samp_dis = [0 for _ in range(num_labels)]
@@ -230,7 +230,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
             samp_dis[other_num] += 1
             sum_res -= 1
     samp_dis[num_labels - 1] = server_pc - np.sum(samp_dis[:num_labels - 1])
-
+    
     # randomly assign the data points based on the labels
     server_counter = [0 for _ in range(num_labels)]
     for _, (data, label) in enumerate(train_data):
@@ -267,7 +267,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     
     each_worker_data = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_data] 
     each_worker_label = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_label]
-
+    
     # randomly permute the workers
     random_order = np.random.RandomState(seed=seed).permutation(num_workers)
     each_worker_data = [each_worker_data[i] for i in random_order]
@@ -278,7 +278,7 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     return server_data, server_label, each_worker_data, each_worker_label
 
 def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
-    
+   
     n = len(train_data) # total amount of users
     num_users_in_server = int(p * n) # how many users to keep for server
     num_workers = n - num_users_in_server
@@ -290,7 +290,6 @@ def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
     server_label = [] 
 
     # randomly shuffle users into workers and those who will be incorporated into server
-    users_list = list(train_data.keys()) 
     random.shuffle(train_data)
     #users_as_workers = users_list[num_users_in_server:]
     #users_in_server = users_list[:num_users_in_server]
