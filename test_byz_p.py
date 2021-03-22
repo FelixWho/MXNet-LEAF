@@ -171,7 +171,6 @@ def retrieve_leaf_data(dataset):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    all_testing[user] = {'x':[], 'y':[]}
                     for image in data['user_data'][user]['x']: # list of image file names
                         x = mx.img.imread(os.path.join(raw_data_path, image))
                         x = mx.img.imresize(x, 84, 84) # resize to 84x84 according to LEAF model
