@@ -133,7 +133,7 @@ def retrieve_leaf_data(dataset):
                         y = np.float32(y)
                         user_y.append(y)
                     all_training.append(
-                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 50, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
@@ -165,7 +165,7 @@ def retrieve_leaf_data(dataset):
                         y = np.float32(y)
                         user_y.append(y)
                     all_training.append(
-                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 100, shuffle=True, last_batch='rollover')) # append a dataset per user
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 3, shuffle=True, last_batch='rollover')) # append a dataset per user
         # preprocess testing data
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
@@ -323,6 +323,8 @@ def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
     
     for each_worker in each_worker_data:
         print(each_worker.shape)
+    print(server_data)
+
     return server_data, server_label, each_worker_data, each_worker_label
     
 def main(args):
@@ -376,6 +378,7 @@ def main(args):
             print(e)
             for i in range(num_workers):
                 minibatch = np.random.choice(list(range(each_worker_data[i].shape[0])), size=batch_size, replace=False)
+                print(minibatch)
                 with autograd.record():
                     output = net(each_worker_data[i][minibatch])
                     loss = softmax_cross_entropy(output, each_worker_label[i][minibatch])
