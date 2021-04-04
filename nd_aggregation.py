@@ -43,6 +43,8 @@ def fltrust(epoch, gradients, net, lr, f, byz):
     global_update = nd.sum(nd.concat(*new_param_list, dim=1), axis=-1)
     idx = 0
     for j, (param) in enumerate(net.collect_params().values()):
+        if param.grad_req == 'null':
+            continue
         param.set_data(param.data() - lr * global_update[idx:(idx+param.data().size)].reshape(param.data().shape))
         idx += param.data().size       
 

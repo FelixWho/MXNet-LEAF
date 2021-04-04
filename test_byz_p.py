@@ -51,7 +51,7 @@ def get_cnn(num_outputs=10, dataset='FashionMNIST'):
             cnn.add(gluon.nn.Dense(num_outputs))
     elif dataset in LEAF_IMPLEMENTED_DATASETS and dataset in LEAF_MODELS:
         print("Using custom LEAF model")
-        cnn = LEAF_MODELS[dataset]
+        cnn = LEAF_MODELS[dataset]()
     else:
         raise NotImplementedError
     return cnn
@@ -196,7 +196,7 @@ def load_data(dataset):
     elif dataset in LEAF_IMPLEMENTED_DATASETS:
         train_data, test_dataset = retrieve_leaf_data(dataset)
         #train_data = mx.gluon.data.DataLoader(train_dataset, 5000, shuffle=True, last_batch='rollover')
-        test_data = mx.gluon.data.DataLoader(test_dataset, 250, shuffle=False, last_batch='rollover')
+        test_data = mx.gluon.data.DataLoader(test_dataset, 100, shuffle=False, last_batch='rollover')
     else: 
         raise NotImplementedError
     return train_data, test_data
