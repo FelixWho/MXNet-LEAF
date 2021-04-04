@@ -17,7 +17,8 @@
 1. Install requirements
 2. Clone the LEAF repository
 3. Install the dataset of choice using LEAF instructions
-4. Run `test_byz_p.py` e.x.
+4. If using dataset in [REDDIT, SENT140], run `/embeddings/get_embs.sh` to install GloVe embedding
+5. Run `test_byz_p.py` e.x.
 
     python3 test_byz_p.py --dataset FashionMNIST
 
