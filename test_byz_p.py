@@ -86,15 +86,25 @@ def evaluate_accuracy(data_iterator, net, ctx, trigger=False, target=None):
     # evaluate the (attack) accuracy of the model
     acc = mx.metric.Accuracy()
     for i, (data, label) in enumerate(data_iterator):
+        #print(data.shape)
+        #print(i)
         data = data.as_in_context(ctx)
         label = label.as_in_context(ctx)
         remaining_idx = list(range(data.shape[0]))
         if trigger:
             data, label, remaining_idx, add_backdoor(data, label, trigger, target)
         output = net(data)
+        #print("here1")
+        #print(output)
         predictions = nd.argmax(output, axis=1)                
+        #print("here2")
+        #print(predictions)
         predictions = predictions[remaining_idx]
+        #print("pred:")
+        #print(predictions)
         label = label[remaining_idx]
+        #print("lab:")
+        #print(label)
         acc.update(preds=predictions, labels=label)        
     return acc.get()[1]
 
@@ -141,7 +151,7 @@ def retrieve_leaf_data(dataset):
                 for user in data['users']:
                     for x in data['user_data'][user]['x']:
                         x = mx.nd.array(x)
-                        x = x.reshape(1,28,28)
+                        x = x.astype(np.float32).reshape(1,28,28)
                         all_testing_x.append(x)
                     for y in data['user_data'][user]['y']:
                         y = np.float32(y)
@@ -181,9 +191,17 @@ def retrieve_leaf_data(dataset):
                         all_testing_y.append(y)  
     else:
         raise NotImplementedError
-
     #train_dataset = mx.gluon.data.dataset.ArrayDataset(all_training_x, all_training_y)
+    #rand_sample = np.random.choice(list(range(len(all_testing_y))), size=1, replace=False)
+    #print(rand_sample)
+    #alt_testing_x = []
+    #alt_testing_y = []
+    #for index in rand_sample:
+    #    alt_testing_x.append(all_testing_x[index])
+    #    alt_testing_y.append(all_testing_y[index])
+    print(all_testing_x[0])
     test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
+    #test_dataset = mx.gluon.data.dataset.ArrayDataset(alt_testing_x, alt_testing_y)
     return all_training, test_dataset
 
 def load_data(dataset):
@@ -193,10 +211,19 @@ def load_data(dataset):
             return nd.transpose(data.astype(np.float32), (2, 0, 1)) / 255, label.astype(np.float32)
         train_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=True, transform=transform), 60000,shuffle=True, last_batch='rollover')
         test_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=False, transform=transform), 250, shuffle=False, last_batch='rollover')
+    
+        s = mx.gluon.data.vision.FashionMNIST(train=False, transform=transform)
+        #print("test dataset len: "+str(len(s)))
+        #print(s[0][0])
+        #print(s[0][1])
+
     elif dataset in LEAF_IMPLEMENTED_DATASETS:
         train_data, test_dataset = retrieve_leaf_data(dataset)
         #train_data = mx.gluon.data.DataLoader(train_dataset, 5000, shuffle=True, last_batch='rollover')
-        test_data = mx.gluon.data.DataLoader(test_dataset, 100, shuffle=False, last_batch='rollover')
+        #print("test dataset len: "+str(len(test_dataset)))
+        #print(test_dataset[0][0])
+        #print(test_dataset[0][1])
+        test_data = mx.gluon.data.DataLoader(test_dataset, 1, shuffle=False, last_batch='rollover')
     else: 
         raise NotImplementedError
     return train_data, test_data
@@ -229,7 +256,8 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
             samp_dis[other_num] += 1
             sum_res -= 1
     samp_dis[num_labels - 1] = server_pc - np.sum(samp_dis[:num_labels - 1])
-    
+    print(samp_dis)
+
     # randomly assign the data points based on the labels
     server_counter = [0 for _ in range(num_labels)]
     for _, (data, label) in enumerate(train_data):
@@ -260,10 +288,13 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
                 selected_worker = int(worker_group * worker_per_group + int(np.floor(rd * worker_per_group)))
                 each_worker_data[selected_worker].append(x)
                 each_worker_label[selected_worker].append(y)
+
+    if not len(server_data) == 0: 
+        server_data = nd.concat(*server_data, dim=0)
+        server_label = nd.concat(*server_label, dim=0)
     
-    server_data = nd.concat(*server_data, dim=0)
-    server_label = nd.concat(*server_label, dim=0)
-    
+    print("num workers: "+str(len(each_worker_label)))
+
     each_worker_data = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_data] 
     each_worker_label = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_label]
     
@@ -271,15 +302,15 @@ def assign_data(train_data, bias, ctx, num_labels=10, num_workers=100, server_pc
     random_order = np.random.RandomState(seed=seed).permutation(num_workers)
     each_worker_data = [each_worker_data[i] for i in random_order]
     each_worker_label = [each_worker_label[i] for i in random_order]
-    
+
     for each_worker in each_worker_data:
         print(each_worker.shape)
     return server_data, server_label, each_worker_data, each_worker_label
 
-def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
+def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', seed=1):
    
     n = len(train_data) # total amount of users
-    num_users_in_server = int(p * n) # how many users to keep for server
+    num_users_in_server = int(server_pc) # how many users to keep for server
     num_workers = n - num_users_in_server
 
     #assign training data to each worker
@@ -310,9 +341,11 @@ def assign_data_leaf(train_data, ctx, p=0.1, dataset='FEMNIST', seed=1):
                     server_data.append(x)
                     server_label.append(y)
 
-    server_data = nd.concat(*server_data, dim=0)
-    server_label = nd.concat(*server_label, dim=0)
-    
+    if not len(server_data) == 0:
+        server_data = nd.concat(*server_data, dim=0)
+        server_label = nd.concat(*server_label, dim=0)
+   
+    print("num workers: "+str(len(each_worker_label)))
     each_worker_data = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_data] 
     each_worker_label = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_label]
 
@@ -364,14 +397,21 @@ def main(args):
         # assign data to the server and clients
         if args.dataset in LEAF_IMPLEMENTED_DATASETS:
             # since LEAF already separates data by user, we go by that instead of user arguments
-            num_workers = len(train_data) - int(args.p * len(train_data)) # instead of args.nworkers, # workers = total users in dataset - users assigned to server
+            num_workers = len(train_data) - args.server_pc # instead of args.nworkers, # workers = total users in dataset - users assigned to server
             server_data, server_label, each_worker_data, each_worker_label = assign_data_leaf(
-                                                                            train_data, ctx, p=args.p, dataset=args.dataset, seed=seed)
-            print("num workers " + str(num_workers))
+                                                                            train_data, ctx, server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
         else:
             server_data, server_label, each_worker_data, each_worker_label = assign_data(
                                                                     train_data, args.bias, ctx, num_labels=num_labels, num_workers=num_workers, 
                                                                     server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
+        
+        
+        print("first worker data shape: "+str(each_worker_data[0].shape))
+        print("first worker data type: "+str(each_worker_data[0].dtype))
+        print("first worker first sample shape: "+str(each_worker_data[0][0].shape))
+        print("first worker first sample type: "+str(each_worker_data[0][0].dtype))
+        #print(str(each_worker_data[0][0]))
+
         # begin training        
         for e in range(niter):            
             print(e)
@@ -395,12 +435,17 @@ def main(args):
                 nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "simple":
                 nd_aggregation.simple_mean(e, grad_list, net, lr, args.nbyz, byz)
+            elif args.aggregation == "trim":
+                nd_aggregation.trim(e, grad_list, net, lr, args.nbyz, byz)
+            elif args.aggregation == "median":
+                nd_aggregation.median(e, grad_list, net, lr, args.nbyz, byz)
 
             del grad_list
             grad_list = []
             
             # evaluate the model accuracy
             if (e + 1) % 50 == 0:
+                #evaluate_accuracy(test_data, net, ctx)
                 test_accuracy = evaluate_accuracy(test_data, net, ctx)
                 test_acc_list.append(test_accuracy)
                 print("Iteration %02d. Test_acc %0.4f" % (e, test_accuracy))

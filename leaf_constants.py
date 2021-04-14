@@ -22,7 +22,7 @@ def build_FEMNIST():
         femnist_cnn.add(gluon.nn.Conv2D(channels=64, kernel_size=5, padding=2, activation='relu'))
         femnist_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
         femnist_cnn.add(gluon.nn.Flatten())
-        femnist_cnn.add(gluon.nn.Dense(2048, activation="relu"))
+        #femnist_cnn.add(gluon.nn.Dense(2048, activation="relu"))
         femnist_cnn.add(gluon.nn.Dense(62))
     return femnist_cnn
 
@@ -31,7 +31,7 @@ def build_CELEBA():
     # Use padding=1 with kernel_size=3 to mimic 'same' padding found in TensorFlow
     celeba_cnn = gluon.nn.Sequential()
     with celeba_cnn.name_scope():
-        for _ in range(4):
+        for _ in range(2):
             celeba_cnn.add(gluon.nn.Conv2D(channels=32, kernel_size=3, padding=1, activation='relu'))
             celeba_cnn.add(gluon.nn.BatchNorm())
             celeba_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
