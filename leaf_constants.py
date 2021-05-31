@@ -34,7 +34,7 @@ def build_CELEBA():
     # Use padding=1 with kernel_size=3 to mimic 'same' padding found in TensorFlow
     celeba_cnn = gluon.nn.Sequential()
     with celeba_cnn.name_scope():
-        for _ in range(1):
+        for _ in range(2):
             celeba_cnn.add(gluon.nn.Conv2D(channels=32, kernel_size=3, padding=1, activation='relu'))
             celeba_cnn.add(gluon.nn.BatchNorm())
             celeba_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
@@ -136,9 +136,9 @@ def build_SENT140():
     # Sent140 RNN found at https://github.com/TalwalkarLab/leaf/blob/master/models/sent140/stacked_lstm.py
     sent140_rnn = gluon.nn.HybridSequential()
     with sent140_rnn.name_scope():
-        sent140_rnn.add(gluon.nn.Embedding(input_dim=len(indd)+1, output_dim=300))
-        sent140_rnn.add(gluon.rnn.LSTM(300, num_layers=1))
-        sent140_rnn.add(gluon.rnn.RNN(300))
+        sent140_rnn.add(gluon.nn.Embedding(input_dim=len(indd)+1, output_dim=50))
+        sent140_rnn.add(gluon.rnn.LSTM(50, num_layers=1))
+        sent140_rnn.add(gluon.rnn.RNN(50))
         #sent140_rnn.add(gluon.nn.Dense(128))
         sent140_rnn.add(gluon.nn.Dense(2))
     return sent140_rnn
@@ -147,7 +147,7 @@ LEAF_MODELS = {
 #    'sent140.bag_dnn': , # lr, num_classes
 #    'sent140.stacked_lstm': (0.0003, 25, 2, 100), # lr, seq_len, num_classes, num_hidden
 #    'sent140.bag_log_reg': (0.0003, 2), # lr, num_classes
-    'SENT140': build_SENT140_gluonnlp,
+    'SENT140': build_SENT140,
     'FEMNIST': build_FEMNIST,
 #    'shakespeare.stacked_lstm': (0.0003, 80, 80, 256), # lr, seq_len, num_classes, num_hidden
     'CELEBA': build_CELEBA,

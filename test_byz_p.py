@@ -362,8 +362,8 @@ def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', s
     each_worker_data = [each_worker_data[i] for i in random_order]
     each_worker_label = [each_worker_label[i] for i in random_order]
     
-    for each_worker in each_worker_data:
-        print(each_worker.shape)
+    #for each_worker in each_worker_data:
+        #print(each_worker.shape)
 
     return server_data, server_label, each_worker_data, each_worker_label
     
@@ -390,8 +390,8 @@ def main(args):
         # set embedding (layer 0) weights for sentiment analysis SENT140 task
         if(args.dataset == 'SENT140'):
             glove = gluonnlp.embedding.create('glove', source='glove.6B.50d')
-            #net[0].weight.set_data(glove.idx_to_vec)
-            net.embedding.weight.set_data(glove.idx_to_vec)
+            net[0].weight.set_data(glove.idx_to_vec)
+            #net.embedding.weight.set_data(glove.idx_to_vec)
         # loss
         softmax_cross_entropy = gluon.loss.SoftmaxCrossEntropyLoss()
 
@@ -430,9 +430,13 @@ def main(args):
             for i in range(num_workers):
                 minibatch = np.random.choice(list(range(each_worker_data[i].shape[0])), size=batch_size, replace=False)
                 with autograd.record():
+                    print("checkpoint 1")
                     output = net(each_worker_data[i][minibatch])
+                    print("checkpoint 2")
                     loss = softmax_cross_entropy(output, each_worker_label[i][minibatch])
+                print("checkpoint 3")
                 loss.backward()
+                print("checkpoint 4")
                 grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req != 'null'])
 
             if args.aggregation == "fltrust":
@@ -446,6 +450,7 @@ def main(args):
                 # perform the aggregation
                 nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "simple":
+                print("checkpoint 5")
                 nd_aggregation.simple_mean(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "trim":
                 nd_aggregation.trim(e, grad_list, net, lr, args.nbyz, byz)

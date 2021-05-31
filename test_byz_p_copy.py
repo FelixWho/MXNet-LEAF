@@ -161,7 +161,7 @@ def retrieve_leaf_data(dataset):
                     for x in data['user_data'][user]['x']:
                         x = line_to_indices(x[4], indd, max_words)
                         x = mx.nd.array(x)
-                        x = x.astype(int).reshape(1, max_words)
+                        x = x.astype(int)#.reshape(1, max_words)
                         #x = mx.nd.transpose(x)
                         #all_testing_x.append(mx.nd.transpose(line_to_indices(x[4], indd, max_words).reshape(1,max_words)))
                         all_testing_x.append(x)
@@ -268,7 +268,7 @@ def main(args):
         # initialization
         net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), force_reinit=True, ctx=ctx)
         # embedding
-        glove = gluonnlp.embedding.create('glove', source='glove.6B.300d')
+        glove = gluonnlp.embedding.create('glove', source='glove.6B.50d')
         net[0].weight.set_data(glove.idx_to_vec)
         #net.embedding.weight.set_data(glove.idx_to_vec)
         # loss
