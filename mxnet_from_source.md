@@ -77,7 +77,7 @@ export OpenBLAS_HOME="{PATH_TO_LIB}"
 ```
 
 ## Installing LAPACK From Source
-he trick to installing LAPACK is that you need to install the shared library (.so files), not the static library (.a) files.
+The trick to installing LAPACK is that you need to install the shared library (.so files), not the static library (.a) files.
 
 Download a recent LAPACK source from http://www.netlib.org/lapack/. In my case I use lapack-3.8.0. Decompress it.
 
