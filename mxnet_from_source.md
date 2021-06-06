@@ -42,8 +42,7 @@ make -j 8
 make install
 ```
 
-Don't forget to add library paths to ```.
-```.
+Don't forget to add library paths to ```.bashrc```
 
 ```
 export PATH="{PATH_TO_LIB}/bin:$PATH"
