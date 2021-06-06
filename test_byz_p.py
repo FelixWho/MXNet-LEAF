@@ -430,13 +430,13 @@ def main(args):
             for i in range(num_workers):
                 minibatch = np.random.choice(list(range(each_worker_data[i].shape[0])), size=batch_size, replace=False)
                 with autograd.record():
-                    print("checkpoint 1")
+                    #print("checkpoint 1")
                     output = net(each_worker_data[i][minibatch])
-                    print("checkpoint 2")
+                    #print("checkpoint 2")
                     loss = softmax_cross_entropy(output, each_worker_label[i][minibatch])
-                print("checkpoint 3")
+                #print("checkpoint 3")
                 loss.backward()
-                print("checkpoint 4")
+                #print("checkpoint 4")
                 grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req != 'null'])
 
             if args.aggregation == "fltrust":
@@ -450,7 +450,7 @@ def main(args):
                 # perform the aggregation
                 nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "simple":
-                print("checkpoint 5")
+                #print("checkpoint 5")
                 nd_aggregation.simple_mean(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "trim":
                 nd_aggregation.trim(e, grad_list, net, lr, args.nbyz, byz)
