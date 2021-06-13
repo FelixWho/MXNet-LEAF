@@ -144,7 +144,7 @@ and edited the configurations.
 ```
 cd apache-mxnet-src-1.8.0-incubating
 mkdir build; cd build
-cmake  -D CMAKE_INSTALL_PREFIX=PATH_TO_LIB -DLAPACK_LIBRARIES=PATH_TO_LAPACK_LIB ..
+cmake -DLAPACK_LIBRARIES=PATH_TO_LAPACK_LIB ..
 cmake --build . 
 ```
 
