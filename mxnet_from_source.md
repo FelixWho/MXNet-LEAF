@@ -148,7 +148,7 @@ cmake  -D CMAKE_INSTALL_PREFIX=PATH_TO_LIB -DLAPACK_LIBRARIES=PATH_TO_LAPACK_LIB
 cmake --build . 
 ```
 
-where ```PATH_TO_LAPACK_LIB``` is the lib folder containing liblapack.so. Finally, we want to add Python bindings so we can import MXNet into our Python programs.
+where ```PATH_TO_LAPACK_LIB``` is the lib folder containing liblapack.so. Finally, we want to add Python bindings so we can import MXNet into our Python programs. In the main folder, run
 
 ```
 python3 -m pip install --user -e ./python
