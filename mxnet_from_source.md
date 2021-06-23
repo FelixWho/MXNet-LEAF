@@ -14,7 +14,7 @@ make
 make install
 ```
 
-Don't forget to add library paths to ```/bashrc```.
+Don't forget to add library paths to ```.bashrc```
 
 ```
 export PATH="{PATH_TO_LIB}/bin:$PATH"
@@ -42,7 +42,7 @@ make -j 8
 make install
 ```
 
-Don't forget to add library paths to ```.bashrc```.
+Don't forget to add library paths to ```.bashrc```
 
 ```
 export PATH="{PATH_TO_LIB}/bin:$PATH"
@@ -77,7 +77,7 @@ export OpenBLAS_HOME="{PATH_TO_LIB}"
 ```
 
 ## Installing LAPACK From Source
-he trick to installing LAPACK is that you need to install the shared library (.so files), not the static library (.a) files.
+The trick to installing LAPACK is that you need to install the shared library (.so files), not the static library (.a) files.
 
 Download a recent LAPACK source from http://www.netlib.org/lapack/. In my case I use lapack-3.8.0. Decompress it.
 
@@ -144,11 +144,11 @@ and edited the configurations.
 ```
 cd apache-mxnet-src-1.8.0-incubating
 mkdir build; cd build
-cmake  -D CMAKE_INSTALL_PREFIX=PATH_TO_LIB -DLAPACK_LIBRARIES=PATH_TO_LAPACK_LIB ..
+cmake -DLAPACK_LIBRARIES=PATH_TO_LAPACK_LIB ..
 cmake --build . 
 ```
 
-where ```PATH_TO_LAPACK_LIB``` is the lib folder containing liblapack.so. Finally, we want to add Python bindings so we can import MXNet into our Python programs.
+where ```PATH_TO_LAPACK_LIB``` is the lib folder containing liblapack.so. Finally, we want to add Python bindings so we can import MXNet into our Python programs. In the main folder, run
 
 ```
 python3 -m pip install --user -e ./python
