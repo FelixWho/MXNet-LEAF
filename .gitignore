@@ -4,3 +4,4 @@ leaf
 /embeddings/glove.6B.50d.txt
 /embeddings/glove.6B.300d.txt
 /embeddings/embs.json
+test_byz_p_copy.py
