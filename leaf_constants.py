@@ -6,14 +6,18 @@ import numpy as np
 from mxnet.contrib import text
 import json
 import re
-# Configuration file for LEAF datasets
+import pickle
+import collections
 
 LEAF_IMPLEMENTED_DATASETS = [
     'FEMNIST',
     'CELEBA',
-    'SENT140'
+    'SENT140',
+    'SHAKESPEARE',
+    'REDDIT'
 ]
-#list: list of implemented LEAF datasets
+
+### FEMNIST utilities
 
 def build_FEMNIST():
     # FEMNIST CNN found at https://github.com/TalwalkarLab/leaf/blob/master/models/femnist/cnn.py
@@ -29,6 +33,8 @@ def build_FEMNIST():
         femnist_cnn.add(gluon.nn.Dense(62))
     return femnist_cnn
 
+### CELEBA utilities
+
 def build_CELEBA():
     # CelebA CNN found at https://github.com/TalwalkarLab/leaf/blob/master/models/celeba/cnn.py
     # Use padding=1 with kernel_size=3 to mimic 'same' padding found in TensorFlow
@@ -42,6 +48,8 @@ def build_CELEBA():
         celeba_cnn.add(gluon.nn.Flatten())
         celeba_cnn.add(gluon.nn.Dense(2))
     return celeba_cnn
+
+### SENT140 utilities
 
 def split_line(line):
     # copied from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
@@ -89,39 +97,20 @@ def line_to_indices(line, word2id, max_words=25):
     indl += [unk_id]*(max_words-len(indl))
     return indl
 
-class MeanPoolingLayer(gluon.HybridBlock):
-    """A block for mean pooling of encoder features"""
-    def __init__(self, prefix=None, params=None):
-        super(MeanPoolingLayer, self).__init__(prefix=prefix, params=params)
-
-    def hybrid_forward(self, F, data, valid_length): # pylint: disable=arguments-differ
-        """Forward logic"""
-        # Data will have shape (T, N, C)
-        masked_encoded = F.SequenceMask(data,
-                                        sequence_length=valid_length,
-                                        use_sequence_length=True)
-        agg_state = F.broadcast_div(F.sum(masked_encoded, axis=0),
-                                    F.expand_dims(valid_length, axis=1))
-        return agg_state
-
 class SENT140_gluonnlp(gluon.HybridBlock):
     def __init__(self, prefix=None, params=None):
         super(SENT140_gluonnlp, self).__init__(prefix=prefix, params=params)
         _, indd, _ = get_word_emb_arr("embeddings/embs.json")
         with self.name_scope():
             self.embedding = gluon.nn.Embedding(input_dim=len(indd)+1, output_dim=50)
-            self.encoder = gluon.rnn.LSTM(50, num_layers=1)
-            #self.agg_layer = MeanPoolingLayer()
+            self.encoder = gluon.rnn.LSTM(50, num_layers=2)
             self.output = gluon.nn.HybridSequential()
             with self.output.name_scope():
-                #self.output.add(gluon.rnn.RNN(300))
-                #self.output.add(gluon.nn.Dense(128))
+                self.output.add(gluon.nn.Dense(128))
                 self.output.add(gluon.nn.Dense(2))
 
     def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
         encoded = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
-        #agg_state = self.agg_layer(encoded, 25)
-        #out = self.output(agg_state)
         encoding = nd.concat(encoded[0], encoded[-1])
         out = self.output(encoding)
         return out
@@ -130,28 +119,105 @@ def build_SENT140_gluonnlp():
     sent140_rnn = SENT140_gluonnlp()
     return sent140_rnn
 
-def build_SENT140():
-    _, indd, leaf_vocab = get_word_emb_arr("embeddings/embs.json") 
-    max_size = 25
-    # Sent140 RNN found at https://github.com/TalwalkarLab/leaf/blob/master/models/sent140/stacked_lstm.py
-    sent140_rnn = gluon.nn.HybridSequential()
-    with sent140_rnn.name_scope():
-        sent140_rnn.add(gluon.nn.Embedding(input_dim=len(indd)+1, output_dim=50))
-        sent140_rnn.add(gluon.rnn.LSTM(50, num_layers=1))
-        sent140_rnn.add(gluon.rnn.RNN(50))
-        #sent140_rnn.add(gluon.nn.Dense(128))
-        sent140_rnn.add(gluon.nn.Dense(2))
-    return sent140_rnn
+### SHAKESPEARE utilities
+
+ALL_LETTERS = "\n !\"&'(),-.0123456789:;>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]abcdefghijklmnopqrstuvwxyz}"
+NUM_LETTERS = len(ALL_LETTERS)
+
+def word_to_indices(word):
+    # altered from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
+    '''returns a list of character indices
+    Args:
+        word: string
+    
+    Return:
+        indices: int list with length len(word)
+    '''
+    indices = []
+    for c in word:
+        indices.append(ALL_LETTERS.find(c))
+    makeup = 80 - len(indices)
+    for i in range(makeup):
+        indices.append(1) # append 1's signifying spaces for a buffer to reach 80
+    return indices
+
+class SHAKESPEARE_gluonnlp(gluon.HybridBlock):
+    def __init__(self, prefix=None, params=None):
+        super(SHAKESPEARE_gluonnlp, self).__init__(prefix=prefix, params=params)
+        with self.name_scope():
+            self.embedding = gluon.nn.Embedding(input_dim=80, output_dim=8)
+            self.encoder = gluon.rnn.LSTM(256, num_layers=2)
+            self.output = gluon.nn.HybridSequential()
+            with self.output.name_scope():
+                # self.output.add(gluon.nn.Dense(128))
+                self.output.add(gluon.nn.Dense(80))
+
+    def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
+        encoded = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
+        encoding = nd.concat(encoded[0], encoded[-1])
+        out = self.output(encoding)
+        return out
+
+def build_SHAKESPEARE_gluonnlp():
+    shakespeare_rnn = SHAKESPEARE_gluonnlp()
+    return shakespeare_rnn
+
+### REDDIT utilities
+
+VOCABULARY_PATH = 'leaf/data/reddit/vocab/reddit_vocab.pck'
+
+def load_vocab():
+    vocab_file = pickle.load(open(VOCABULARY_PATH, 'rb'))
+    vocab = collections.defaultdict(lambda: vocab_file['unk_symbol'])
+    vocab.update(vocab_file['vocab'])
+
+    return vocab, vocab_file['size'], vocab_file['unk_symbol'], vocab_file['pad_symbol']
+
+def _tokens_to_ids(raw_batch, p = False):
+    vocab, _, _, _ = load_vocab()
+    if p:
+        print(raw_batch)
+    def tokens_to_word_ids(tokens, vocab):
+        return [vocab[word] for word in tokens]
+
+    to_ret = [tokens_to_word_ids(seq, vocab) for seq in raw_batch]
+    if p:
+        print(to_ret)
+    return to_ret
+
+class REDDIT_gluonnlp(gluon.HybridBlock):
+    def __init__(self, prefix=None, params=None):
+        super(REDDIT_gluonnlp, self).__init__(prefix=prefix, params=params)
+        vocab, vocab_size, unk_symbol, pad_symbol = load_vocab()
+        with self.name_scope():
+            self.embedding = gluon.nn.Embedding(input_dim=vocab_size, output_dim=256)
+            self.encoder = gluon.rnn.HybridSequentialRNNCell()
+            with self.encoder.name_scope():
+                self.encoder.add(gluon.rnn.LSTMCell(256))
+                self.encoder.add(gluon.rnn.DropoutCell(0))
+                self.encoder.add(gluon.rnn.LSTMCell(256))
+                self.encoder.add(gluon.rnn.DropoutCell(0))
+            self.output = None
+
+    def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
+        encoding = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
+        out = nd.reshape(nd.concat(encoded, dim=1), (-1, 256))
+        return out
+
+def build_REDDIT_gluonnlp():
+    reddit_rnn = REDDIT_gluonnlp()
+    return reddit_rnn
 
 LEAF_MODELS = {
 #    'sent140.bag_dnn': , # lr, num_classes
 #    'sent140.stacked_lstm': (0.0003, 25, 2, 100), # lr, seq_len, num_classes, num_hidden
 #    'sent140.bag_log_reg': (0.0003, 2), # lr, num_classes
-    'SENT140': build_SENT140,
+    'SENT140': build_SENT140_gluonnlp,
     'FEMNIST': build_FEMNIST,
 #    'shakespeare.stacked_lstm': (0.0003, 80, 80, 256), # lr, seq_len, num_classes, num_hidden
     'CELEBA': build_CELEBA,
+    'SHAKESPEARE': build_SHAKESPEARE_gluonnlp,
+    'REDDIT': build_REDDIT_gluonnlp
 #    'synthetic.log_reg': (0.0003, 5, 60), # lr, num_classes, input_dim
 #    'reddit.stacked_lstm': (0.0003, 10, 256, 2), # lr, seq_len, num_hidden, num_layers
 }
-"""dict: Model specific architecture"""

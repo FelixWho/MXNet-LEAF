@@ -5,7 +5,10 @@ import numpy as np
 def simple_mean(epoch, gradients, net, lr, f, byz):
     param_list = [nd.concat(*[xx.reshape((-1, 1)) for xx in x], dim=0) for x in gradients]
     param_list = byz(epoch, param_list, net, lr, f)
+    #print(param_list)
+    #print(nd.concat(*param_list, dim=1))
     mean_nd = nd.mean(nd.concat(*param_list, dim=1), axis=-1)
+    #print(mean_nd)
     idx = 0
     for j, (param) in enumerate(net.collect_params().values()):
         if param.grad_req == 'null':

@@ -10,6 +10,9 @@
 ## Other Requirements
 
     mxnet
+    gluonnlp
+    pickle
+    collections
     ...
 
 ## Workflow
@@ -26,8 +29,8 @@ Note, LEAF dataset names are assumed to be completely capitalized to avoid confu
 
     FEMNIST
     CELEBA
-    SENT140 # not implemented
-    SHAKESPEARE # not implemented
-    SYNTHETIC # not implemented
-    REDDIT # not implemented
+    SENT140
+    SHAKESPEARE
+    REDDIT # in progress
+    SYNTHETIC # no plans to implement
 

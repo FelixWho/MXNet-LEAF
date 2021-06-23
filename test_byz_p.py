@@ -10,7 +10,7 @@ import os
 import json
 import gluonnlp
 
-from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS, get_word_emb_arr, line_to_indices
+from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS, get_word_emb_arr, line_to_indices, word_to_indices, ALL_LETTERS, NUM_LETTERS, _tokens_to_ids, load_vocab
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -81,9 +81,17 @@ def get_shapes(dataset):
         num_outputs = 2
         num_labels = 2
     elif dataset == 'SENT140': # LEAF dataset
-        num_inputs = 0 # unsure what to put for text classification
+        num_inputs = 25 # unsure what to put for text classification
         num_outputs = 2
         num_labels = 2
+    elif dataset == 'SHAKESPEARE':
+        num_inputs = 80
+        num_outputs = 80
+        num_labels = 80
+    elif dataset == 'REDDIT':
+        num_inputs = 10
+        num_outputs = None
+        num_labels = None
     else:
         raise NotImplementedError
     return num_inputs, num_outputs, num_labels
@@ -94,6 +102,7 @@ def evaluate_accuracy(data_iterator, net, ctx, trigger=False, target=None):
     for i, (data, label) in enumerate(data_iterator):
         data = data.as_in_context(ctx)
         label = label.as_in_context(ctx)
+        #print("labels: " + str(label[:10]))
         remaining_idx = list(range(data.shape[0]))
         if trigger:
             data, label, remaining_idx, add_backdoor(data, label, trigger, target)
@@ -101,6 +110,9 @@ def evaluate_accuracy(data_iterator, net, ctx, trigger=False, target=None):
         predictions = nd.argmax(output, axis=1)                
         predictions = predictions[remaining_idx]
         label = label[remaining_idx]
+        #print("prediction type: "+str(type(predictions[0])))
+        #print("predictions: " + str(predictions[:10]))
+        
         acc.update(preds=predictions, labels=label)        
     return acc.get()[1]
 
@@ -202,7 +214,7 @@ def retrieve_leaf_data(dataset):
                         x = x.astype(int).reshape(1, max_words)
                         user_x.append(x)
                     for y in data['user_data'][user]['y']:
-                        y = np.float32(y)
+                        y = np.float64(y)
                         user_y.append(y)
                     all_training.append(
                             mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
@@ -216,12 +228,74 @@ def retrieve_leaf_data(dataset):
                         x = x.astype(int)
                         all_testing_x.append(x)
                     for y in data['user_data'][user]['y']:
-                        y = np.float32(y)
+                        y = np.float64(y)
                         all_testing_y.append(y)
-
+    elif dataset == 'SHAKESPEARE':
+        max_len = 80
+        for filename in os.listdir(train_data_path):
+            with open(os.path.join(train_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    user_x = []
+                    user_y = []
+                    for x in data['user_data'][user]['x']:
+                        x = word_to_indices(x)[:max_len]
+                        x = mx.nd.array(x)
+                        x = x.astype(int).reshape(1, max_len)
+                        user_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = np.float64(ALL_LETTERS.find(y))
+                        user_y.append(y)
+                    all_training.append(
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
+        for filename in os.listdir(test_data_path):
+            with open(os.path.join(test_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    for x in data['user_data'][user]['x']:
+                        x = word_to_indices(x)[:max_len]
+                        x = mx.nd.array(x)
+                        x = x.astype(int)
+                        all_testing_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = np.float64(ALL_LETTERS.find(y))
+                        all_testing_y.append(y)
+    elif dataset == 'REDDIT':
+        for filename in os.listdir(train_data_path):
+            with open(os.path.join(train_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    user_x = []
+                    user_y = []
+                    for x in data['user_data'][user]['x']:
+                        x = _tokens_to_ids([s for s in x])
+                        x = mx.nd.array(x)
+                        x = x.astype(int)#.reshape(1, -1)
+                        user_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = _tokens_to_ids([s for s in y], p=True)
+                        y = mx.nd.array(y)
+                        user_y.append(y)
+                    all_training.append(
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
+        for filename in os.listdir(test_data_path):
+            with open(os.path.join(test_data_path, filename)) as f:
+                data = json.load(f)
+                for user in data['users']:
+                    for x in data['user_data'][user]['x']:
+                        x = _tokens_to_ids([s for s in x])
+                        x = mx.nd.array(x)
+                        x = x.astype(int)#.reshape(1, -1)
+                        all_testing_x.append(x)
+                    for y in data['user_data'][user]['y']:
+                        y = _tokens_to_ids([s for s in y], p = True)
+                        y = mx.nd.array(y)
+                        all_testing_y.append(y)
     else:
         raise NotImplementedError
     test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
+    sample = test_dataset[0]
+    print("sample" + str(sample))
     return all_training, test_dataset
 
 def load_data(dataset):
@@ -233,7 +307,7 @@ def load_data(dataset):
         test_data = mx.gluon.data.DataLoader(mx.gluon.data.vision.FashionMNIST(train=False, transform=transform), 250, shuffle=False, last_batch='rollover')
     elif dataset in LEAF_IMPLEMENTED_DATASETS:
         train_data, test_dataset = retrieve_leaf_data(dataset)
-        test_data = mx.gluon.data.DataLoader(test_dataset, 1, shuffle=False, last_batch='rollover')
+        test_data = mx.gluon.data.DataLoader(test_dataset, 50, shuffle=False, last_batch='rollover')
     else: 
         raise NotImplementedError
     return train_data, test_data
@@ -339,6 +413,11 @@ def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', s
                 elif dataset == 'SENT140':
                     max_size = 25
                     x = x.as_in_context(ctx).reshape(1,max_size)
+                elif dataset == 'SHAKESPEARE':
+                    max_len = 80
+                    x = x.as_in_context(ctx).reshape(1, max_len)
+                elif dataset == 'REDDIT':
+                    x = x.as_in_context(ctx).reshape(1, -1)
                 else:
                     raise NotImplementedError
                 y = y.as_in_context(ctx)
@@ -388,10 +467,11 @@ def main(args):
         # initialization
         net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), force_reinit=True, ctx=ctx)
         # set embedding (layer 0) weights for sentiment analysis SENT140 task
-        if(args.dataset == 'SENT140'):
+        if(args.dataset in ['SENT140']):
             glove = gluonnlp.embedding.create('glove', source='glove.6B.50d')
-            net[0].weight.set_data(glove.idx_to_vec)
-            #net.embedding.weight.set_data(glove.idx_to_vec)
+            net.embedding.weight.set_data(glove.idx_to_vec)
+            for param in net.embedding.collect_params().values():
+                param.grad_req = 'null'
         # loss
         softmax_cross_entropy = gluon.loss.SoftmaxCrossEntropyLoss()
 
@@ -403,10 +483,12 @@ def main(args):
         mx.random.seed(seed)
         random.seed(seed)
         np.random.seed(seed)
-    
+        
+        print("loading data...") 
         # load the data
         train_data, test_data = load_data(args.dataset)
-        
+
+        print("assigning data...")
         # assign data to the server and clients
         if args.dataset in LEAF_IMPLEMENTED_DATASETS:
             # since LEAF already separates data by user, we go by that instead of user arguments
@@ -429,6 +511,7 @@ def main(args):
             print(e)
             for i in range(num_workers):
                 minibatch = np.random.choice(list(range(each_worker_data[i].shape[0])), size=batch_size, replace=False)
+                #net.summary(each_worker_data[0][minibatch])
                 with autograd.record():
                     #print("checkpoint 1")
                     output = net(each_worker_data[i][minibatch])
@@ -438,7 +521,9 @@ def main(args):
                 loss.backward()
                 #print("checkpoint 4")
                 grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req != 'null'])
-
+            print("gradlist len: "+str(len(grad_list)))
+            #print("gradlist shape: " +str(grad_list.shape))
+            #net.summary(each_worker_data[0][minibatch])
             if args.aggregation == "fltrust":
                 # compute server update and append it to the end of the list
                 minibatch = np.random.choice(list(range(server_data.shape[0])), size=args.server_pc, replace=False)
@@ -450,7 +535,7 @@ def main(args):
                 # perform the aggregation
                 nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "simple":
-                #print("checkpoint 5")
+                print("checkpoint 5")
                 nd_aggregation.simple_mean(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "trim":
                 nd_aggregation.trim(e, grad_list, net, lr, args.nbyz, byz)
