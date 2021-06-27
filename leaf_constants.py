@@ -1,6 +1,7 @@
 from __future__ import print_function
 import mxnet as mx
 from mxnet import nd, autograd, gluon
+from mxnet.gluon.loss import Loss
 import gluonnlp as nlp
 import numpy as np
 from mxnet.contrib import text
@@ -17,11 +18,10 @@ LEAF_IMPLEMENTED_DATASETS = [
     'REDDIT'
 ]
 
-### FEMNIST utilities
+### FEMNIST utilities ###
 
 def build_FEMNIST():
-    # FEMNIST CNN found at https://github.com/TalwalkarLab/leaf/blob/master/models/femnist/cnn.py
-    # Use padding=2 with kernel_size=5 to mimic 'same' padding found in TensorFlow
+    # Use padding=2 with kernel_size=5 to mimic 'same' padding found in TensorFlow LEAF model
     femnist_cnn = gluon.nn.Sequential()
     with femnist_cnn.name_scope():
         femnist_cnn.add(gluon.nn.Conv2D(channels=32, kernel_size=5, padding=2, activation='relu'))
@@ -29,15 +29,14 @@ def build_FEMNIST():
         femnist_cnn.add(gluon.nn.Conv2D(channels=64, kernel_size=5, padding=2, activation='relu'))
         femnist_cnn.add(gluon.nn.MaxPool2D(pool_size=2, strides=2))
         femnist_cnn.add(gluon.nn.Flatten())
-        #femnist_cnn.add(gluon.nn.Dense(2048, activation="relu")) # removed due to gpu space limitation
+        #femnist_cnn.add(gluon.nn.Dense(2048, activation="relu")) # remove due to gpu space limitation
         femnist_cnn.add(gluon.nn.Dense(62))
     return femnist_cnn
 
-### CELEBA utilities
+### CELEBA utilities ###
 
 def build_CELEBA():
-    # CelebA CNN found at https://github.com/TalwalkarLab/leaf/blob/master/models/celeba/cnn.py
-    # Use padding=1 with kernel_size=3 to mimic 'same' padding found in TensorFlow
+    # Use padding=1 with kernel_size=3 to mimic 'same' padding found in TensorFlow LEAF model
     celeba_cnn = gluon.nn.Sequential()
     with celeba_cnn.name_scope():
         for _ in range(2):
@@ -49,10 +48,10 @@ def build_CELEBA():
         celeba_cnn.add(gluon.nn.Dense(2))
     return celeba_cnn
 
-### SENT140 utilities
+### SENT140 utilities ###
 
+# taken from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
 def split_line(line):
-    # copied from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
     '''split given line/phrase into list of words
     Args:
         line: string representing phrase to be split
@@ -62,8 +61,8 @@ def split_line(line):
     '''
     return re.findall(r"[\w']+|[.,!?;]", line)
 
+# taken from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
 def get_word_emb_arr(path):
-    # copied from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
     with open(path, 'r') as inf:
         embs = json.load(inf)
     vocab = embs['vocab']
@@ -74,8 +73,8 @@ def get_word_emb_arr(path):
     vocab = {w: i for i, w in enumerate(embs['vocab'])}
     return word_emb_arr, indd, vocab
 
+# taken from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
 def line_to_indices(line, word2id, max_words=25):
-    # copied from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
     '''converts given phrase into list of word indices
 
     if the phrase has more than max_words words, returns a list containing
@@ -92,7 +91,6 @@ def line_to_indices(line, word2id, max_words=25):
     '''
     unk_id = len(word2id)
     line_list = split_line(line) # split phrase in words
-    #print(line_list)
     indl = [word2id[w] if w in word2id else unk_id for w in line_list[:max_words]]
     indl += [unk_id]*(max_words-len(indl))
     return indl
@@ -102,6 +100,8 @@ class SENT140_gluonnlp(gluon.HybridBlock):
         super(SENT140_gluonnlp, self).__init__(prefix=prefix, params=params)
         _, indd, _ = get_word_emb_arr("embeddings/embs.json")
         with self.name_scope():
+            # TODO: input_dim, output_dim can also be given by gluon's built in 
+            # input_dim, output_dim = vocab.embedding.idx_to_vec.shape
             self.embedding = gluon.nn.Embedding(input_dim=len(indd)+1, output_dim=50)
             self.encoder = gluon.rnn.LSTM(50, num_layers=2)
             self.output = gluon.nn.HybridSequential()
@@ -119,13 +119,13 @@ def build_SENT140_gluonnlp():
     sent140_rnn = SENT140_gluonnlp()
     return sent140_rnn
 
-### SHAKESPEARE utilities
+### SHAKESPEARE utilities ###
 
 ALL_LETTERS = "\n !\"&'(),-.0123456789:;>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]abcdefghijklmnopqrstuvwxyz}"
 NUM_LETTERS = len(ALL_LETTERS)
 
+# taken from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
 def word_to_indices(word):
-    # altered from https://github.com/TalwalkarLab/leaf/blob/master/models/utils/language_utils.py
     '''returns a list of character indices
     Args:
         word: string
@@ -149,7 +149,6 @@ class SHAKESPEARE_gluonnlp(gluon.HybridBlock):
             self.encoder = gluon.rnn.LSTM(256, num_layers=2)
             self.output = gluon.nn.HybridSequential()
             with self.output.name_scope():
-                # self.output.add(gluon.nn.Dense(128))
                 self.output.add(gluon.nn.Dense(80))
 
     def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
@@ -162,7 +161,7 @@ def build_SHAKESPEARE_gluonnlp():
     shakespeare_rnn = SHAKESPEARE_gluonnlp()
     return shakespeare_rnn
 
-### REDDIT utilities
+### REDDIT utilities ###
 
 VOCABULARY_PATH = 'leaf/data/reddit/vocab/reddit_vocab.pck'
 
@@ -173,17 +172,87 @@ def load_vocab():
 
     return vocab, vocab_file['size'], vocab_file['unk_symbol'], vocab_file['pad_symbol']
 
-def _tokens_to_ids(raw_batch, p = False):
+def _tokens_to_ids(raw_batch, pr = False):
     vocab, _, _, _ = load_vocab()
-    if p:
-        print(raw_batch)
+    if pr:
+        print("raw batch: " + str(raw_batch))
     def tokens_to_word_ids(tokens, vocab):
         return [vocab[word] for word in tokens]
 
     to_ret = [tokens_to_word_ids(seq, vocab) for seq in raw_batch]
-    if p:
-        print(to_ret)
+    if pr:
+        print("to_ret: " + str(to_ret))
     return to_ret
+
+def process_x(self, raw_x_batch):
+    tokens = _tokens_to_ids([s for s in raw_x_batch])
+    lengths = np.sum(tokens != self.pad_symbol, axis=1)
+    return tokens, lengths
+
+def process_y(raw_y_batch):
+    tokens = _tokens_to_ids([s for s in raw_y_batch])
+    return tokens
+
+def batch_data(data, batch_size):
+    vocab, vocab_size, unk_symbol, pad_symbol = load_vocab()
+
+    data_x = data['x']
+    data_y = data['y']
+
+    perm = np.random.permutation(len(data['x']))
+    data_x = [data_x[i] for i in perm]
+    data_y = [data_y[i] for i in perm]
+
+    # flatten lists
+    def flatten_lists(data_x_by_comment, data_y_by_comment):
+        data_x_by_seq, data_y_by_seq, mask_by_seq = [], [], []
+        for c, l in zip(data_x_by_comment, data_y_by_comment):
+            data_x_by_seq.extend(c)
+            data_y_by_seq.extend(l['target_tokens'])
+            mask_by_seq.extend(l['count_tokens'])
+
+        if len(data_x_by_seq) % batch_size != 0:
+            dummy_tokens = [pad_symbol for _ in range(10)]
+            dummy_mask = [0 for _ in range(10)]
+            num_dummy = batch_size - len(data_x_by_seq) % batch_size
+
+            data_x_by_seq.extend([dummy_tokens for _ in range(num_dummy)])
+            data_y_by_seq.extend([dummy_tokens for _ in range(num_dummy)])
+            mask_by_seq.extend([dummy_mask for _ in range(num_dummy)])
+
+        return data_x_by_seq, data_y_by_seq, mask_by_seq
+    
+    data_x, data_y, data_mask = flatten_lists(data_x, data_y)
+
+    user_x = []
+    user_y = []
+    lengths = []
+    masks = []
+
+    for i in range(0, len(data_x)):
+        batched_x = data_x[i]
+        batched_y = data_y[i]
+        batched_mask = data_mask[i]
+
+        input_data, input_lengths = process_x(batched_x)
+        target_data = process_y(batched_y)
+
+        user_x.append(input_data)
+        user_y.append(target_data)
+        lengths.append(input_lengths)
+        masks.append(batched_mask)
+
+    return user_x, user_y, lengths, masks
+
+# rewrite from https://github.com/tensorflow/addons/blob/v0.13.0/tensorflow_addons/seq2seq/loss.py#L24-L169
+# assumes average_across_timesteps=False, average_across_batch=True
+class SequenceLoss(Loss):
+    def __init__(self, **kwargs):
+        super(SequenceLoss, self).__init__(**kwargs)
+
+    def hybrid_forward(self, F, logits, lables, weights):
+        # TODO
+
 
 class REDDIT_gluonnlp(gluon.HybridBlock):
     def __init__(self, prefix=None, params=None):
@@ -191,17 +260,18 @@ class REDDIT_gluonnlp(gluon.HybridBlock):
         vocab, vocab_size, unk_symbol, pad_symbol = load_vocab()
         with self.name_scope():
             self.embedding = gluon.nn.Embedding(input_dim=vocab_size, output_dim=256)
-            self.encoder = gluon.rnn.HybridSequentialRNNCell()
+            self.encoder = gluon.nn.HybridSequential()
             with self.encoder.name_scope():
-                self.encoder.add(gluon.rnn.LSTMCell(256))
-                self.encoder.add(gluon.rnn.DropoutCell(0))
-                self.encoder.add(gluon.rnn.LSTMCell(256))
-                self.encoder.add(gluon.rnn.DropoutCell(0))
+                self.encoder.add(gluon.rnn.LSTM(256, num_layers=1))
+                self.encoder.add(gluon.nn.Dropout(0))
+                self.encoder.add(gluon.rnn.LSTM(256, num_layers=1))
+                self.encoder.add(gluon.nn.Dropout(0))
             self.output = None
 
     def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
-        encoding = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
-        out = nd.reshape(nd.concat(encoded, dim=1), (-1, 256))
+        encoding = self.encoder(self.embedding(data))
+        #encoding = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
+        out = nd.reshape(nd.concat(encoding, dim=1), (-1, 256))
         return out
 
 def build_REDDIT_gluonnlp():
@@ -209,15 +279,10 @@ def build_REDDIT_gluonnlp():
     return reddit_rnn
 
 LEAF_MODELS = {
-#    'sent140.bag_dnn': , # lr, num_classes
-#    'sent140.stacked_lstm': (0.0003, 25, 2, 100), # lr, seq_len, num_classes, num_hidden
-#    'sent140.bag_log_reg': (0.0003, 2), # lr, num_classes
     'SENT140': build_SENT140_gluonnlp,
     'FEMNIST': build_FEMNIST,
-#    'shakespeare.stacked_lstm': (0.0003, 80, 80, 256), # lr, seq_len, num_classes, num_hidden
     'CELEBA': build_CELEBA,
     'SHAKESPEARE': build_SHAKESPEARE_gluonnlp,
     'REDDIT': build_REDDIT_gluonnlp
-#    'synthetic.log_reg': (0.0003, 5, 60), # lr, num_classes, input_dim
 #    'reddit.stacked_lstm': (0.0003, 10, 256, 2), # lr, seq_len, num_hidden, num_layers
 }

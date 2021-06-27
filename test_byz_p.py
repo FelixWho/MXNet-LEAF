@@ -51,16 +51,27 @@ def get_cnn(num_outputs=10, dataset='FashionMNIST'):
             cnn.add(gluon.nn.Dense(100, activation="relu"))
             cnn.add(gluon.nn.Dense(num_outputs))
     elif dataset in LEAF_IMPLEMENTED_DATASETS and dataset in LEAF_MODELS:
-        print("Using custom LEAF model")
+        print("using custom LEAF model...")
         cnn = LEAF_MODELS[dataset]()
     else:
         raise NotImplementedError
     return cnn
 
+def get_rnn(num_outputs=10, dataset='SENT140'):
+    # define the architecture of the RNN
+    if dataset in LEAF_IMPLEMENTED_DATASETS and dataset in LEAF_MODELS:
+        print("using custom LEAF model...")
+        rnn = LEAF_MODELS[dataset]()
+    else:
+        raise NotImplementedError
+    return rnn
+
 def get_net(net_type, num_outputs=10, dataset='FashionMNIST'):
     # define the model architecture
     if args.net == 'cnn':
         net = get_cnn(num_outputs, dataset)
+    if args.net == 'rnn':
+        net = get_rnn(num_outputs, dataset)
     else:
         raise NotImplementedError
     print(net)
@@ -102,17 +113,18 @@ def evaluate_accuracy(data_iterator, net, ctx, trigger=False, target=None):
     for i, (data, label) in enumerate(data_iterator):
         data = data.as_in_context(ctx)
         label = label.as_in_context(ctx)
-        #print("labels: " + str(label[:10]))
         remaining_idx = list(range(data.shape[0]))
         if trigger:
             data, label, remaining_idx, add_backdoor(data, label, trigger, target)
         output = net(data)
+        if i == 0:
+            #print("output shape: "+str(output.shape))
+            #print("label shapeL "+str(label.shape))
+            print("output: "+str(output))
+            print("label: "+str(label))
         predictions = nd.argmax(output, axis=1)                
         predictions = predictions[remaining_idx]
         label = label[remaining_idx]
-        #print("prediction type: "+str(type(predictions[0])))
-        #print("predictions: " + str(predictions[:10]))
-        
         acc.update(preds=predictions, labels=label)        
     return acc.get()[1]
 
@@ -268,13 +280,15 @@ def retrieve_leaf_data(dataset):
                     user_x = []
                     user_y = []
                     for x in data['user_data'][user]['x']:
-                        x = _tokens_to_ids([s for s in x])
+                        x = _tokens_to_ids([s for s in x], p=False)
                         x = mx.nd.array(x)
                         x = x.astype(int)#.reshape(1, -1)
                         user_x.append(x)
                     for y in data['user_data'][user]['y']:
-                        y = _tokens_to_ids([s for s in y], p=True)
+                        y = y['target_tokens']
+                        y = _tokens_to_ids([s for s in y], p=False)
                         y = mx.nd.array(y)
+                        y = y.astype(int)
                         user_y.append(y)
                     all_training.append(
                             mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
@@ -283,13 +297,15 @@ def retrieve_leaf_data(dataset):
                 data = json.load(f)
                 for user in data['users']:
                     for x in data['user_data'][user]['x']:
-                        x = _tokens_to_ids([s for s in x])
+                        x = _tokens_to_ids([s for s in x], p = False)
                         x = mx.nd.array(x)
                         x = x.astype(int)#.reshape(1, -1)
                         all_testing_x.append(x)
                     for y in data['user_data'][user]['y']:
-                        y = _tokens_to_ids([s for s in y], p = True)
+                        y = y['target_tokens']
+                        y = _tokens_to_ids([s for s in y], p = False)
                         y = mx.nd.array(y)
+                        y = y.astype(int)
                         all_testing_y.append(y)
     else:
         raise NotImplementedError
@@ -417,7 +433,8 @@ def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', s
                     max_len = 80
                     x = x.as_in_context(ctx).reshape(1, max_len)
                 elif dataset == 'REDDIT':
-                    x = x.as_in_context(ctx).reshape(1, -1)
+                    max_len = 10
+                    x = x.as_in_context(ctx).reshape(1, max_len)
                 else:
                     raise NotImplementedError
                 y = y.as_in_context(ctx)
@@ -462,6 +479,7 @@ def main(args):
         args.nbyz) + "+" + "byz_type " + str(args.byz_type) + "+" + "aggregation " + str(args.aggregation) + ".txt"
  
     with ctx:
+        print("fetching appropriate model...")
         # model architecture
         net = get_net(args.net, num_outputs, args.dataset)
         # initialization
@@ -513,16 +531,13 @@ def main(args):
                 minibatch = np.random.choice(list(range(each_worker_data[i].shape[0])), size=batch_size, replace=False)
                 #net.summary(each_worker_data[0][minibatch])
                 with autograd.record():
-                    #print("checkpoint 1")
                     output = net(each_worker_data[i][minibatch])
-                    #print("checkpoint 2")
+                    print(output)
+                    print(each_worker_label[i][minibatch])
                     loss = softmax_cross_entropy(output, each_worker_label[i][minibatch])
-                #print("checkpoint 3")
                 loss.backward()
-                #print("checkpoint 4")
                 grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req != 'null'])
             print("gradlist len: "+str(len(grad_list)))
-            #print("gradlist shape: " +str(grad_list.shape))
             #net.summary(each_worker_data[0][minibatch])
             if args.aggregation == "fltrust":
                 # compute server update and append it to the end of the list
@@ -535,7 +550,6 @@ def main(args):
                 # perform the aggregation
                 nd_aggregation.fltrust(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "simple":
-                print("checkpoint 5")
                 nd_aggregation.simple_mean(e, grad_list, net, lr, args.nbyz, byz)
             elif args.aggregation == "trim":
                 nd_aggregation.trim(e, grad_list, net, lr, args.nbyz, byz)
