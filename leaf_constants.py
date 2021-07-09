@@ -182,18 +182,20 @@ def _tokens_to_ids(raw_batch, pr = False):
     to_ret = [tokens_to_word_ids(seq, vocab) for seq in raw_batch]
     if pr:
         print("to_ret: " + str(to_ret))
+    to_ret = nd.array(to_ret)
+    to_ret = to_ret.astype(int)
     return to_ret
 
-def process_x(self, raw_x_batch):
+def process_x(raw_x_batch, pad_symbol):
     tokens = _tokens_to_ids([s for s in raw_x_batch])
-    lengths = np.sum(tokens != self.pad_symbol, axis=1)
+    lengths = np.sum(tokens != pad_symbol, axis=1)
     return tokens, lengths
 
 def process_y(raw_y_batch):
     tokens = _tokens_to_ids([s for s in raw_y_batch])
     return tokens
 
-def batch_data(data, batch_size):
+def batch_data(data):
     vocab, vocab_size, unk_symbol, pad_symbol = load_vocab()
 
     data_x = data['x']
@@ -211,15 +213,6 @@ def batch_data(data, batch_size):
             data_y_by_seq.extend(l['target_tokens'])
             mask_by_seq.extend(l['count_tokens'])
 
-        if len(data_x_by_seq) % batch_size != 0:
-            dummy_tokens = [pad_symbol for _ in range(10)]
-            dummy_mask = [0 for _ in range(10)]
-            num_dummy = batch_size - len(data_x_by_seq) % batch_size
-
-            data_x_by_seq.extend([dummy_tokens for _ in range(num_dummy)])
-            data_y_by_seq.extend([dummy_tokens for _ in range(num_dummy)])
-            mask_by_seq.extend([dummy_mask for _ in range(num_dummy)])
-
         return data_x_by_seq, data_y_by_seq, mask_by_seq
     
     data_x, data_y, data_mask = flatten_lists(data_x, data_y)
@@ -234,8 +227,8 @@ def batch_data(data, batch_size):
         batched_y = data_y[i]
         batched_mask = data_mask[i]
 
-        input_data, input_lengths = process_x(batched_x)
-        target_data = process_y(batched_y)
+        input_data, input_lengths = process_x([batched_x], pad_symbol)
+        target_data = process_y([batched_y])
 
         user_x.append(input_data)
         user_y.append(target_data)
@@ -247,12 +240,60 @@ def batch_data(data, batch_size):
 # rewrite from https://github.com/tensorflow/addons/blob/v0.13.0/tensorflow_addons/seq2seq/loss.py#L24-L169
 # assumes average_across_timesteps=False, average_across_batch=True
 class SequenceLoss(Loss):
-    def __init__(self, **kwargs):
-        super(SequenceLoss, self).__init__(**kwargs)
+    def __init__(self, weight=None, batch_axis=0, **kwargs):
+        super(SequenceLoss, self).__init__(weight, batch_axis, **kwargs)
 
-    def hybrid_forward(self, F, logits, lables, weights):
-        # TODO
+    def sparse_softmax_cross_entropy_with_logits(self, x, y):
+        ret = nd.empty(x.shape[0])
+        for i in range(x.shape[0]):
+            unflattened_logit = nd.reshape(x[i], (1, -1)) # 1D array to 2D array
+            label = y[i]
+            ret[i] = nd.softmax_cross_entropy(unflattened_logit, label)
+        return ret
 
+    # rewrite from https://www.tensorflow.org/api_docs/python/tf/nn/sparse_softmax_cross_entropy_with_logits
+    def hybrid_forward(self, F, logits, targets, weights):
+        print(targets)
+
+        targets_rank = len(targets.shape) # unused, can probably remove
+        num_classes = logits.shape[2]
+        logits_flat = nd.reshape(logits, (-1, num_classes))
+
+        targets = nd.reshape(targets, (-1))
+        crossent = self.sparse_softmax_cross_entropy_with_logits(logits_flat, targets)
+
+        crossent *= nd.reshape(weights, (-1))
+        reduce_axis = 0
+        crossent = nd.sum(crossent, axis = reduce_axis)
+        total_count = mx.np.count_nonzero(weights, axis = reduce_axis).astype(crossent.dtype)
+        crossent = mx.np.divide(crossent, total_count)
+        return nd.mean(crossent)
+
+
+# rewrite tf.nn.xw_plus_b in gluon
+class XW_Plus_B_HybridLayer(gluon.HybridBlock):
+    def __init__(self, hidden_units, output):
+        '''
+        hidden_units - number of hidden units
+        output - number of outputs
+        '''
+        super(XW_Plus_B_HybridLayer, self).__init__()
+
+        with self.name_scope():
+            self.weights = self.params.get('weights',
+                                        grad_req = 'write',
+                                        shape=(hidden_units, output),
+                                        allow_deferred_init=True)
+
+            self.bias = self.params.get('bias', 
+                                        grad_req = 'write',
+                                        shape=(output,),
+                                        init=mx.initializer.Zero(), # custom init because Xavier requires 2D parameter, which the bias param isn't
+                                        allow_deferred_init=True)
+
+    def hybrid_forward(self, F, x, weights, bias):
+        # x * weights + bias
+        return F.broadcast_add(F.linalg.gemm2(x, weights), bias)
 
 class REDDIT_gluonnlp(gluon.HybridBlock):
     def __init__(self, prefix=None, params=None):
@@ -266,12 +307,20 @@ class REDDIT_gluonnlp(gluon.HybridBlock):
                 self.encoder.add(gluon.nn.Dropout(0))
                 self.encoder.add(gluon.rnn.LSTM(256, num_layers=1))
                 self.encoder.add(gluon.nn.Dropout(0))
-            self.output = None
-
+            self.output = XW_Plus_B_HybridLayer(256, vocab_size)
+            #self.output = gluon.nn.HybridSequential()
+            # with self.output.name_scope():
+            #    self.output.add(gluon.nn.Dense(vocab_size, activation=None, use_bias=True))
     def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
-        encoding = self.encoder(self.embedding(data))
+        inputs = self.embedding(data)
+        #print("inputs: "+str(inputs))
+        encoding = self.encoder(inputs)
         #encoding = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
-        out = nd.reshape(nd.concat(encoding, dim=1), (-1, 256))
+        flattened_encoding = nd.reshape(nd.concat(encoding, dim=1), (-1, 256))
+        print("flattened encoding shape: "+str(flattened_encoding.shape))
+        out = self.output(flattened_encoding)
+        print("nn output:")
+        print(out)
         return out
 
 def build_REDDIT_gluonnlp():

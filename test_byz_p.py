@@ -10,7 +10,7 @@ import os
 import json
 import gluonnlp
 
-from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS, get_word_emb_arr, line_to_indices, word_to_indices, ALL_LETTERS, NUM_LETTERS, _tokens_to_ids, load_vocab
+from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS, get_word_emb_arr, line_to_indices, word_to_indices, ALL_LETTERS, NUM_LETTERS, _tokens_to_ids, load_vocab, batch_data, SequenceLoss
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -68,13 +68,12 @@ def get_rnn(num_outputs=10, dataset='SENT140'):
 
 def get_net(net_type, num_outputs=10, dataset='FashionMNIST'):
     # define the model architecture
-    if args.net == 'cnn':
+    if net_type == 'cnn':
         net = get_cnn(num_outputs, dataset)
-    if args.net == 'rnn':
+    elif net_type == 'rnn':
         net = get_rnn(num_outputs, dataset)
     else:
         raise NotImplementedError
-    print(net)
     return net
     
 def get_shapes(dataset):
@@ -277,41 +276,25 @@ def retrieve_leaf_data(dataset):
             with open(os.path.join(train_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    user_x = []
-                    user_y = []
-                    for x in data['user_data'][user]['x']:
-                        x = _tokens_to_ids([s for s in x], p=False)
-                        x = mx.nd.array(x)
-                        x = x.astype(int)#.reshape(1, -1)
-                        user_x.append(x)
-                    for y in data['user_data'][user]['y']:
-                        y = y['target_tokens']
-                        y = _tokens_to_ids([s for s in y], p=False)
-                        y = mx.nd.array(y)
-                        y = y.astype(int)
-                        user_y.append(y)
+                    user_x, user_y, lengths, masks = batch_data(data['user_data'][user])
+                    # Explanation: we want to include the masks with the data points (user_x), so we make
+                    # arrays containing both.
+                    # ArrayDataset() will not accept arrays of different lengths, so we must make a dummy 
+                    # variable of length 2 containing the label (user_y) data.
+                    user_x_and_masks = [user_x, masks]
+                    user_y_and_dummy = [user_y, None] # used to trick ArrayDataset()
                     all_training.append(
-                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x, user_y), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
+                            mx.gluon.data.DataLoader(mx.gluon.data.dataset.ArrayDataset(user_x_and_masks, user_y_and_dummy), 1, shuffle=True, last_batch='rollover')) # append a dataset per user
         for filename in os.listdir(test_data_path):
             with open(os.path.join(test_data_path, filename)) as f:
                 data = json.load(f)
                 for user in data['users']:
-                    for x in data['user_data'][user]['x']:
-                        x = _tokens_to_ids([s for s in x], p = False)
-                        x = mx.nd.array(x)
-                        x = x.astype(int)#.reshape(1, -1)
-                        all_testing_x.append(x)
-                    for y in data['user_data'][user]['y']:
-                        y = y['target_tokens']
-                        y = _tokens_to_ids([s for s in y], p = False)
-                        y = mx.nd.array(y)
-                        y = y.astype(int)
-                        all_testing_y.append(y)
+                    user_x, user_y, lengths, masks = batch_data(data['user_data'][user])
+                    all_testing_x.extend(user_x)
+                    all_testing_y.extend(user_y)
     else:
         raise NotImplementedError
     test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
-    sample = test_dataset[0]
-    print("sample" + str(sample))
     return all_training, test_dataset
 
 def load_data(dataset):
@@ -412,14 +395,14 @@ def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', s
 
     #assign training data to each worker
     each_worker_data = [[] for _ in range(num_workers)]
-    each_worker_label = [[] for _ in range(num_workers)]   
+    each_worker_label = [[] for _ in range(num_workers)]
+    each_worker_mask = [[] for _ in range(num_workers)] # for use in REDDIT dataset
     server_data = []
     server_label = [] 
 
-    # randomly shuffle users into workers and those who will be incorporated into server
-    random.shuffle(train_data)
-
     for i in range(0, n):
+        print("train data i:")
+        print(train_data[i])
         for _, (data, label) in enumerate(train_data[i]):
             for (x, y) in zip(data, label):
                 if dataset == 'FEMNIST':
@@ -431,16 +414,20 @@ def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', s
                     x = x.as_in_context(ctx).reshape(1,max_size)
                 elif dataset == 'SHAKESPEARE':
                     max_len = 80
-                    x = x.as_in_context(ctx).reshape(1, max_len)
+                    x = x.as_in_context(ctx).reshape(1,max_len)
                 elif dataset == 'REDDIT':
                     max_len = 10
-                    x = x.as_in_context(ctx).reshape(1, max_len)
+                    mask = x[1]
+                    x = x[0]
+                    x = x.as_in_context(ctx).reshape(1,max_len)
+                    y = y[0]
                 else:
                     raise NotImplementedError
                 y = y.as_in_context(ctx)
                 if i < num_workers:
                     each_worker_data[i].append(x)
                     each_worker_label[i].append(y)
+                    each_worker_mask[i].append(mask)
                 else:
                     server_data.append(x)
                     server_label.append(y)
@@ -452,16 +439,19 @@ def assign_data_leaf(train_data, ctx, server_pc=100, p=0.1, dataset='FEMNIST', s
     print("num workers: "+str(len(each_worker_label)))
     each_worker_data = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_data] 
     each_worker_label = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_label]
+    each_worker_mask = [nd.concat(*each_worker, dim=0) for each_worker in each_worker_mask] # for use in REDDIT dataset
+
 
     # randomly permute the workers
     random_order = np.random.RandomState(seed=seed).permutation(num_workers)
     each_worker_data = [each_worker_data[i] for i in random_order]
     each_worker_label = [each_worker_label[i] for i in random_order]
+    each_worker_mask = [each_worker_mask[i] for i in random_order] # for use in REDDIT dataset
     
     #for each_worker in each_worker_data:
         #print(each_worker.shape)
 
-    return server_data, server_label, each_worker_data, each_worker_label
+    return server_data, server_label, each_worker_data, each_worker_label, each_worker_mask
     
 def main(args):
     # device to use
@@ -491,7 +481,10 @@ def main(args):
             for param in net.embedding.collect_params().values():
                 param.grad_req = 'null'
         # loss
-        softmax_cross_entropy = gluon.loss.SoftmaxCrossEntropyLoss()
+        if args.dataset == 'REDDIT':
+            lossFunction = SequenceLoss()
+        else:
+            lossFunction = gluon.loss.SoftmaxCrossEntropyLoss()
 
         grad_list = []
         test_acc_list = []
@@ -511,13 +504,12 @@ def main(args):
         if args.dataset in LEAF_IMPLEMENTED_DATASETS:
             # since LEAF already separates data by user, we go by that instead of user arguments
             num_workers = len(train_data) - args.server_pc # instead of args.nworkers, # workers = total users in dataset - users assigned to server
-            server_data, server_label, each_worker_data, each_worker_label = assign_data_leaf(
-                                                                            train_data, ctx, server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
+            server_data, server_label, each_worker_data, each_worker_label, masks = assign_data_leaf(
+                                                                    train_data, ctx, server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
         else:
             server_data, server_label, each_worker_data, each_worker_label = assign_data(
                                                                     train_data, args.bias, ctx, num_labels=num_labels, num_workers=num_workers, 
                                                                     server_pc=args.server_pc, p=args.p, dataset=args.dataset, seed=seed)
-        
         
         print("first worker data shape: "+str(each_worker_data[0].shape))
         print("first worker data type: "+str(each_worker_data[0].dtype))
@@ -533,12 +525,16 @@ def main(args):
                 with autograd.record():
                     output = net(each_worker_data[i][minibatch])
                     print(output)
-                    print(each_worker_label[i][minibatch])
-                    loss = softmax_cross_entropy(output, each_worker_label[i][minibatch])
+                    net.summary(each_worker_data[0][minibatch])
+                    #print(each_worker_label[i][minibatch])
+                    if args.dataset == 'REDDIT':
+                        loss = lossFunction(output, each_worker_label[i][minibatch], masks[i][minibatch])
+                    else:
+                        loss = lossFunction(output, each_worker_label[i][minibatch])
                 loss.backward()
                 grad_list.append([param.grad().copy() for param in net.collect_params().values() if param.grad_req != 'null'])
-            print("gradlist len: "+str(len(grad_list)))
-            #net.summary(each_worker_data[0][minibatch])
+            #print("gradlist len: "+str(len(grad_list)))
+            net.summary(each_worker_data[0][minibatch])
             if args.aggregation == "fltrust":
                 # compute server update and append it to the end of the list
                 minibatch = np.random.choice(list(range(server_data.shape[0])), size=args.server_pc, replace=False)
