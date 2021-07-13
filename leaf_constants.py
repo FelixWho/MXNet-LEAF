@@ -225,7 +225,7 @@ def batch_data(data):
     for i in range(0, len(data_x)):
         batched_x = data_x[i]
         batched_y = data_y[i]
-        batched_mask = data_mask[i]
+        batched_mask = nd.array([data_mask[i]])
 
         input_data, input_lengths = process_x([batched_x], pad_symbol)
         target_data = process_y([batched_y])
@@ -234,40 +234,117 @@ def batch_data(data):
         user_y.append(target_data)
         lengths.append(input_lengths)
         masks.append(batched_mask)
-
+    #print("felix check")
+    #print(user_x)
+    #print(masks)
     return user_x, user_y, lengths, masks
+
+class SequenceLoss_v3(gluon.loss.SoftmaxCELoss):
+    """
+    The softmax cross-entropy loss with masks. Must use (axis=1, batch_axis=0).
+    Mimics Tensorflow seq2seq SequenceLoss with average_across_timesteps=False, average_across_batch=True
+    Source at https://github.com/tensorflow/addons/blob/v0.13.0/tensorflow_addons/seq2seq/loss.py#L24-L169
+    One difference: since objective is to minimize mean loss, we apply mean() at the end. Felix update: July 11, took away mean()
+    """
+
+    # `pred` shape: (`batch_size`, `seq_len`, `vocab_size`)
+    # `label` shape: (`batch_size`, `seq_len`)
+    # `weights` shape: (`batch_size`,`seq_len`)
+    def hybrid_forward(self, F, pred, labels, weights):
+        num_classes = pred.shape[2]
+        pred_flat = F.reshape(pred, (-1, num_classes))
+        labels = F.reshape(labels, (-1))
+        flattened_weights = F.reshape(weights, (-1))
+
+        crossent = super(SequenceLoss_v3, self).hybrid_forward(F, pred_flat, labels, sample_weight=flattened_weights)
+
+        crossent = F.reshape(crossent, pred.shape[0:2])
+        print(crossent)
+        reduce_axis = 0
+        crossent = F.sum(crossent, axis=reduce_axis)
+        print(crossent)
+        total_size = F.sum(weights, axis=reduce_axis)
+        print(total_size)
+        crossent = F.broadcast_div(crossent, total_size)
+        
+        #print(F.mean(crossent))
+        #return F.mean(crossent)
+        return crossent
+
+class SequenceLoss_v2(gluon.loss.SoftmaxCELoss):
+    """
+    The softmax cross-entropy loss with masks. Must use (axis=2, batch_axis=0)
+    """
+
+    # `pred` shape: (`batch_size`, `seq_len`, `vocab_size`)
+    # `label` shape: (`batch_size`, `seq_len`)
+    # `weights` shape: (`batch_size`,`seq_len`)
+    def hybrid_forward(self, F, pred, label, weights):
+        weights = F.reshape(weights, (weights.shape[0], weights.shape[1], 1)) # (x,y) -> (x,y,1) 
+        crossent = super(SequenceLoss_v2, self).hybrid_forward(F, pred, label, sample_weight=weights)
+
+        return crossent
 
 # rewrite from https://github.com/tensorflow/addons/blob/v0.13.0/tensorflow_addons/seq2seq/loss.py#L24-L169
 # assumes average_across_timesteps=False, average_across_batch=True
-class SequenceLoss(Loss):
+class SequenceLoss_v1(Loss):
+    '''
+    DO NOT USE
+    '''
     def __init__(self, weight=None, batch_axis=0, **kwargs):
-        super(SequenceLoss, self).__init__(weight, batch_axis, **kwargs)
+        super(SequenceLoss_v1, self).__init__(weight, batch_axis, **kwargs)
 
-    def sparse_softmax_cross_entropy_with_logits(self, x, y):
-        ret = nd.empty(x.shape[0])
-        for i in range(x.shape[0]):
-            unflattened_logit = nd.reshape(x[i], (1, -1)) # 1D array to 2D array
-            label = y[i]
-            ret[i] = nd.softmax_cross_entropy(unflattened_logit, label)
-        return ret
-
-    # rewrite from https://www.tensorflow.org/api_docs/python/tf/nn/sparse_softmax_cross_entropy_with_logits
     def hybrid_forward(self, F, logits, targets, weights):
-        print(targets)
-
-        targets_rank = len(targets.shape) # unused, can probably remove
+        print("logits: "+str(logits))
+        print("labels: "+str(targets))
         num_classes = logits.shape[2]
-        logits_flat = nd.reshape(logits, (-1, num_classes))
+        #print("logits: "+str(logits.shape))
+        logits_flat = F.reshape(logits, (-1, num_classes))
+        print("log flat: "+str(logits_flat.shape))
 
-        targets = nd.reshape(targets, (-1))
-        crossent = self.sparse_softmax_cross_entropy_with_logits(logits_flat, targets)
+        targets = F.reshape(targets, (-1))
+        #print("targets: "+str(targets.shape))
 
-        crossent *= nd.reshape(weights, (-1))
+        # custom sparse_softmax_cross_entropy_with_logits implementation
+        # computes softmax cross entropy across each row of an axis
+        def sparse_softmax_cross_entropy_with_logits_v1(x, y):
+            def softmax_cross_entropy_single_row(data, _):
+                return F.softmax_cross_entropy(F.reshape(data[:-1], (1, -1)), data[-1]), []
+            
+            y_reshaped = F.reshape(y, (-1, 1))
+            x_y_concatenated = F.concat(x, y_reshaped, dim=1)
+            ret, _ = F.contrib.foreach(softmax_cross_entropy_single_row, x_y_concatenated, [])
+
+            return ret
+
+        crossent = sparse_softmax_cross_entropy_with_logits_v1(logits_flat.astype(np.float32), targets.astype(np.float32))
+        print("crossent: "+str(crossent.shape))
+        print("weights shape: "+str(weights.shape))
+        print("logits shape: "+str(logits.shape))
+        print("logits partial shape: "+str(logits.shape[0:2]))
+        crossent = F.broadcast_mul(crossent, F.reshape(weights, (-1, 1)))
+        #print("crossent after weight: "+str(crossent.shape))
+        #print(crossent)
+        #print("check 1")
+        crossent = F.reshape(crossent, logits.shape[0:2])
+        #print(crossent)
+        #print("check 2")
         reduce_axis = 0
-        crossent = nd.sum(crossent, axis = reduce_axis)
-        total_count = mx.np.count_nonzero(weights, axis = reduce_axis).astype(crossent.dtype)
-        crossent = mx.np.divide(crossent, total_count)
-        return nd.mean(crossent)
+        crossent = F.sum(crossent, axis = reduce_axis)
+        #print(crossent)
+        #print("check 3")
+        total_size = F.sum(weights, axis = reduce_axis)
+        #print(crossent)
+        #print("check 4")
+        crossent = F.broadcast_div(crossent, total_size)
+        #total_count = np.count_nonzero(weights, axis = reduce_axis).astype(crossent.dtype)
+        #crossent = F.broadcast_div(crossent, total_count)
+        #print(crossent)
+        #print("check 4")
+        crossent = F.mean(crossent) # we aim to minimize mean
+        #print(crossent)
+        #print("check 5")
+        return crossent
 
 
 # rewrite tf.nn.xw_plus_b in gluon
@@ -296,18 +373,22 @@ class XW_Plus_B_HybridLayer(gluon.HybridBlock):
         return F.broadcast_add(F.linalg.gemm2(x, weights), bias)
 
 class REDDIT_gluonnlp(gluon.HybridBlock):
+    '''
+    Hidden units = 128 instead of 256
+    Otherwise, tensor size would > 2^31, which would require building MXNet from source to fix
+    '''
     def __init__(self, prefix=None, params=None):
         super(REDDIT_gluonnlp, self).__init__(prefix=prefix, params=params)
-        vocab, vocab_size, unk_symbol, pad_symbol = load_vocab()
+        self.vocab, self.vocab_size, self.unk_symbol, self.pad_symbol = load_vocab()
         with self.name_scope():
-            self.embedding = gluon.nn.Embedding(input_dim=vocab_size, output_dim=256)
+            self.embedding = gluon.nn.Embedding(input_dim=self.vocab_size, output_dim=128)
             self.encoder = gluon.nn.HybridSequential()
             with self.encoder.name_scope():
-                self.encoder.add(gluon.rnn.LSTM(256, num_layers=1))
+                self.encoder.add(gluon.rnn.LSTM(64, num_layers=1))
                 self.encoder.add(gluon.nn.Dropout(0))
-                self.encoder.add(gluon.rnn.LSTM(256, num_layers=1))
+                self.encoder.add(gluon.rnn.LSTM(64, num_layers=1))
                 self.encoder.add(gluon.nn.Dropout(0))
-            self.output = XW_Plus_B_HybridLayer(256, vocab_size)
+            self.output = XW_Plus_B_HybridLayer(64, self.vocab_size)
             #self.output = gluon.nn.HybridSequential()
             # with self.output.name_scope():
             #    self.output.add(gluon.nn.Dense(vocab_size, activation=None, use_bias=True))
@@ -316,11 +397,12 @@ class REDDIT_gluonnlp(gluon.HybridBlock):
         #print("inputs: "+str(inputs))
         encoding = self.encoder(inputs)
         #encoding = self.encoder(self.embedding(mx.nd.transpose(data)))  # Shape(T, N, C)
-        flattened_encoding = nd.reshape(nd.concat(encoding, dim=1), (-1, 256))
-        print("flattened encoding shape: "+str(flattened_encoding.shape))
+        flattened_encoding = nd.reshape(nd.concat(encoding, dim=1), (-1, 64))
+        #print("flattened encoding shape: "+str(flattened_encoding.shape))
         out = self.output(flattened_encoding)
-        print("nn output:")
-        print(out)
+        out = nd.reshape(out, (-1, 10, self.vocab_size))
+        #print("nn output:")
+        #print(out)
         return out
 
 def build_REDDIT_gluonnlp():
