@@ -11,8 +11,6 @@
 
     mxnet
     gluonnlp
-    pickle
-    collections
     ...
 
 ## Workflow
@@ -23,7 +21,9 @@
 4. If using dataset in [REDDIT, SENT140], run `/embeddings/get_embs.sh` to install GloVe embedding
 5. Run `test_byz_p.py` e.x.
 
+    ```
     python3 test_byz_p.py --dataset FashionMNIST
+    ```
 
 Note, LEAF dataset names are assumed to be completely capitalized to avoid confusion. The LEAF dataset names are as follows:
 
