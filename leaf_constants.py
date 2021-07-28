@@ -1,4 +1,5 @@
 from __future__ import print_function
+from ast import increment_lineno
 import mxnet as mx
 from mxnet import nd, autograd, gluon
 from mxnet.gluon.loss import Loss
@@ -241,10 +242,11 @@ def batch_data(data):
 
 class SequenceLoss_v3(gluon.loss.SoftmaxCELoss):
     """
-    The softmax cross-entropy loss with masks. Must use (axis=1, batch_axis=0).
+    The sequence softmax cross-entropy loss with masks. Must use (axis=1, batch_axis=0).
     Mimics Tensorflow seq2seq SequenceLoss with average_across_timesteps=False, average_across_batch=True
     Source at https://github.com/tensorflow/addons/blob/v0.13.0/tensorflow_addons/seq2seq/loss.py#L24-L169
-    One difference: since objective is to minimize mean loss, we apply mean() at the end. Felix update: July 11, took away mean()
+    One difference: since objective is to minimize mean loss, we apply mean() at the end. 
+    Felix update: July 11, took away mean()
     """
 
     # `pred` shape: (`batch_size`, `seq_len`, `vocab_size`)
@@ -255,19 +257,36 @@ class SequenceLoss_v3(gluon.loss.SoftmaxCELoss):
         pred_flat = F.reshape(pred, (-1, num_classes))
         labels = F.reshape(labels, (-1))
         flattened_weights = F.reshape(weights, (-1))
+        #print("predflat: "+str(pred_flat))
+        #print("labelsflat: "+str(labels))
+        #print("weightflat: "+str(flattened_weights))
 
-        crossent = super(SequenceLoss_v3, self).hybrid_forward(F, pred_flat, labels, sample_weight=flattened_weights)
-
+        crossent = super(SequenceLoss_v3, self).hybrid_forward(F, pred_flat, labels, sample_weight=None)
+        #print("crossent after CE: "+str(crossent))
+        # Apply weights
+        crossent = F.broadcast_mul(crossent, flattened_weights)
+        #print("crossent after weight: "+str(crossent))
         crossent = F.reshape(crossent, pred.shape[0:2])
-        print(crossent)
         reduce_axis = 0
         crossent = F.sum(crossent, axis=reduce_axis)
-        print(crossent)
         total_size = F.sum(weights, axis=reduce_axis)
-        print(total_size)
-        crossent = F.broadcast_div(crossent, total_size)
-        
-        #print(F.mean(crossent))
+
+        # Tf has divide_no_nan whereas MXNet does not.
+        # Alternative: we take inverse of total_size using foreach
+        # and if element is 0, keep it 0
+        # Instead of dividing, we can now multiply crossent by the
+        # inverse of total_size
+        def inverse(data, state):
+            if data[0] == 0:
+                return data, []
+            return 1 / data, []
+        total_size_inverse, _ = F.contrib.foreach(inverse, total_size, [])
+        total_size_inverse = F.reshape(total_size_inverse, (-1))
+        # print(total_size_inverse)
+        #print(crossent)
+        #print(total_size_inverse)
+        crossent = F.broadcast_mul(crossent, total_size_inverse)
+        #print(crossent)
         #return F.mean(crossent)
         return crossent
 
@@ -298,12 +317,11 @@ class SequenceLoss_v1(Loss):
         print("logits: "+str(logits))
         print("labels: "+str(targets))
         num_classes = logits.shape[2]
-        #print("logits: "+str(logits.shape))
+
         logits_flat = F.reshape(logits, (-1, num_classes))
         print("log flat: "+str(logits_flat.shape))
 
         targets = F.reshape(targets, (-1))
-        #print("targets: "+str(targets.shape))
 
         # custom sparse_softmax_cross_entropy_with_logits implementation
         # computes softmax cross entropy across each row of an axis
@@ -323,27 +341,13 @@ class SequenceLoss_v1(Loss):
         print("logits shape: "+str(logits.shape))
         print("logits partial shape: "+str(logits.shape[0:2]))
         crossent = F.broadcast_mul(crossent, F.reshape(weights, (-1, 1)))
-        #print("crossent after weight: "+str(crossent.shape))
-        #print(crossent)
-        #print("check 1")
         crossent = F.reshape(crossent, logits.shape[0:2])
-        #print(crossent)
-        #print("check 2")
         reduce_axis = 0
         crossent = F.sum(crossent, axis = reduce_axis)
-        #print(crossent)
-        #print("check 3")
         total_size = F.sum(weights, axis = reduce_axis)
-        #print(crossent)
-        #print("check 4")
         crossent = F.broadcast_div(crossent, total_size)
-        #total_count = np.count_nonzero(weights, axis = reduce_axis).astype(crossent.dtype)
-        #crossent = F.broadcast_div(crossent, total_count)
-        #print(crossent)
-        #print("check 4")
         crossent = F.mean(crossent) # we aim to minimize mean
-        #print(crossent)
-        #print("check 5")
+
         return crossent
 
 
@@ -374,7 +378,7 @@ class XW_Plus_B_HybridLayer(gluon.HybridBlock):
 
 class REDDIT_gluonnlp(gluon.HybridBlock):
     '''
-    Hidden units = 128 instead of 256
+    Hidden units = 64 instead of 256
     Otherwise, tensor size would > 2^31, which would require building MXNet from source to fix
     '''
     def __init__(self, prefix=None, params=None):
@@ -389,9 +393,7 @@ class REDDIT_gluonnlp(gluon.HybridBlock):
                 self.encoder.add(gluon.rnn.LSTM(64, num_layers=1))
                 self.encoder.add(gluon.nn.Dropout(0))
             self.output = XW_Plus_B_HybridLayer(64, self.vocab_size)
-            #self.output = gluon.nn.HybridSequential()
-            # with self.output.name_scope():
-            #    self.output.add(gluon.nn.Dense(vocab_size, activation=None, use_bias=True))
+
     def hybrid_forward(self, F, data): # pylint: disable=arguments-differ
         inputs = self.embedding(data)
         #print("inputs: "+str(inputs))
@@ -408,6 +410,46 @@ class REDDIT_gluonnlp(gluon.HybridBlock):
 def build_REDDIT_gluonnlp():
     reddit_rnn = REDDIT_gluonnlp()
     return reddit_rnn
+
+class REDDIT_Accuracy(mx.metric.EvalMetric):
+    def __init__(self, num=None):
+        super(REDDIT_Accuracy, self).__init__("REDDIT Accuracy", num)
+        _, _, unk_symbol, pad_symbol = load_vocab()
+        self.pad_symbol = pad_symbol
+        self.unk_symbol = unk_symbol
+
+    def update(self, labels, preds):
+        labels_np = labels.asnumpy().astype('int32')
+        pred_np = preds.asnumpy().astype('int32')
+        mx.metric.check_label_shapes(labels, preds)
+
+        pred_labels_match = np.equal(pred_np, labels_np)
+
+        # Count number of predictions that are 1) one of 
+        # unk or pad and 2) match the corresponding label
+        # Predicting a correct pad or unk is always considered wrong
+        pad_array = np.full(pred_np.shape, self.pad_symbol)
+        #print("pad array: " +str(pad_array))
+        masked_pad_array = np.equal(pred_np, pad_array)
+        #print("mask pad: "+str(masked_pad_array))
+        incorrect_pad = np.multiply(masked_pad_array, pred_labels_match)
+        #print("labels match: "+str(pred_labels_match))
+        #print("incorrect pad: "+str(incorrect_pad))
+        num_incorrect_pad = (incorrect_pad == 1).sum()
+
+        unk_array = np.full(pred_np.shape, self.unk_symbol)
+        masked_unk_array = np.equal(pred_np, unk_array)
+        incorrect_unk = np.multiply(masked_unk_array, pred_labels_match)
+        num_incorrect_unk = (incorrect_unk == 1).sum()
+
+        print("total match: "+str((labels_np.flat == pred_np.flat).sum())+" inc pad: "+str(num_incorrect_pad) + " inc unk: "+str(num_incorrect_unk))
+
+        self.sum_metric += (labels_np.flat == pred_np.flat).sum() - num_incorrect_pad - num_incorrect_unk
+        self.global_sum_metric += (labels_np.flat == pred_np.flat).sum() - num_incorrect_pad - num_incorrect_unk
+        self.num_inst += len(pred_np.flat)
+        self.global_num_inst += len(pred_np.flat)
+
+### Map dataset names to model functions ###
 
 LEAF_MODELS = {
     'SENT140': build_SENT140_gluonnlp,

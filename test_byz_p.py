@@ -10,7 +10,7 @@ import os
 import json
 import gluonnlp
 
-from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS, get_word_emb_arr, line_to_indices, word_to_indices, ALL_LETTERS, NUM_LETTERS, _tokens_to_ids, load_vocab, batch_data, SequenceLoss_v3
+from leaf_constants import LEAF_IMPLEMENTED_DATASETS, LEAF_MODELS, get_word_emb_arr, line_to_indices, word_to_indices, ALL_LETTERS, NUM_LETTERS, _tokens_to_ids, load_vocab, batch_data, SequenceLoss_v3, SequenceLoss_v2, REDDIT_Accuracy
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -108,7 +108,7 @@ def get_shapes(dataset):
 
 def evaluate_accuracy(data_iterator, net, ctx, trigger=False, target=None):
     # evaluate the (attack) accuracy of the model
-    acc = mx.metric.Accuracy()
+    acc = REDDIT_Accuracy()
     for i, (data, label) in enumerate(data_iterator):
         data = data.as_in_context(ctx)
         if i == 0:
@@ -303,7 +303,7 @@ def retrieve_leaf_data(dataset):
                     all_testing_y.extend(user_y)
     else:
         raise NotImplementedError
-    print(all_testing_x)
+    #print(all_testing_x)
     test_dataset = mx.gluon.data.dataset.ArrayDataset(all_testing_x, all_testing_y)
     return all_training, test_dataset, all_masks
 
@@ -546,7 +546,8 @@ def main(args):
                 #net.summary(each_worker_data[0][minibatch])
                 with autograd.record():
                     output = net(each_worker_data[i][minibatch])
-                    #print("output shape: "+str(output.shape))
+                    if i < 1:
+                        print("output: "+str(output))
                     #print("label shape: "+str(each_worker_label[i][minibatch].shape))
                     #print("weight shape: "+str(masks[i][minibatch].shape))
                     #net.summary(each_worker_data[0][minibatch])
