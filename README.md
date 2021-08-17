@@ -1,3 +1,7 @@
+# MXNet-LEAF
+
+The federated learning paradigm was recently introduced and is now gaining traction as a means of training across many users' devices. Prior to this repository, there were limited resources to build and test federated learning models in the MXNet environment. MXNet-LEAF changes that.
+
 # Instructions for Use
 
 ## Requirements for Talwalkar Lab's LEAF Dataset
