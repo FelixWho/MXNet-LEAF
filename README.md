@@ -51,3 +51,6 @@ Note, LEAF dataset names are to be completely capitalized to avoid confusion. Th
     REDDIT
     SYNTHETIC # no plans to implement
 
+# Extra
+
+[mxnet_from_source.md](https://github.com/FelixWho/MXNet-LEAF/blob/master/mxnet_from_source.md) contains instructions for installing MXNet from source without root/sudo permission
